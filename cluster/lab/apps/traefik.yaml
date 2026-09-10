@@ -125,6 +125,18 @@ spec:
             expose:
               default: true
             exposedPort: 5672
+          valkey:
+            port: 6379
+            protocol: TCP
+            expose:
+              default: true
+            exposedPort: 6379
+          smtp:
+            port: 1025
+            protocol: TCP
+            expose:
+              default: true
+            exposedPort: 1025
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik

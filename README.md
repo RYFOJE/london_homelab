@@ -22,6 +22,8 @@ cluster/lab/authentik/  forward-auth Middleware + Authentik blueprints (config a
 cluster/lab/database/   dev Postgres (CNPG Cluster) + TCP route
 cluster/lab/messaging/  RabbitMQ cluster, management Ingress, AMQP route, PodMonitor
 cluster/lab/elastic/    Elasticsearch, Kibana, their Ingresses
+cluster/lab/dev/        Valkey + LAN TCP routes for Valkey and Mailpit SMTP (your workloads go in this namespace)
+renovate.json           dependency PRs; minor/patch under cluster/ automerge after 14 days
 cluster/lab/observability/dashboards/  Grafana dashboards as code (kustomize -> ConfigMaps)
 cluster/lab/observability/monitors/    Pod/ServiceMonitors for Traefik, ArgoCD, cert-manager
 scripts/              preflight.ps1 (before apply), verify.ps1 (after), credentials.ps1 (every password)
@@ -100,7 +102,8 @@ Grafana Alloy, all in the `observability` namespace, waves 15-30.
 
 ## Dev platform
 
-Everything a personal dev project needs, one namespace each, waves 5-22.
+Everything a personal dev project needs, one namespace each, waves 5-22,
+plus KEDA for autoscaling (below).
 The Talos VM is sized at 12 GiB for this; `locals.tf` is where that lives.
 
 | Service | In-cluster | From the LAN | Credentials |
@@ -111,7 +114,11 @@ The Talos VM is sized at 12 GiB for this; `locals.tf` is where that lives.
 | RabbitMQ management | — | `https://rabbitmq.lab.ryfoje.com` | Authentik, then the Secret above |
 | Elasticsearch | `http://elasticsearch-es-http.elastic.svc.cluster.local:9200` | `https://elasticsearch.lab.ryfoje.com` | Secret `elastic/elasticsearch-es-elastic-user`, user `elastic` |
 | Kibana | — | `https://kibana.lab.ryfoje.com` | Authentik login only |
+| Valkey (Redis-compatible) | `valkey.dev.svc.cluster.local:6379` | `192.168.18.80:6379` | Secret `dev/valkey-auth` |
+| Mailpit SMTP (sink) | `mailpit-smtp.dev.svc.cluster.local:1025` | `192.168.18.80:1025` | none |
+| Mailpit UI | — | `https://mailpit.lab.ryfoje.com` | Authentik login only |
 | Grafana | — | `https://grafana.lab.ryfoje.com` | "Sign in with Authentik", or the break-glass admin |
+| ArgoCD | — | `https://argocd.lab.ryfoje.com` | "Log in via Authentik" (group `argocd-admins` = admin, else read-only), or the local admin |
 
 Reading a password:
 
@@ -122,6 +129,64 @@ kubectl -n database get secret dev-db-app -o jsonpath='{.data.password}' | % { [
 TCP ports 5432 and 5672 are Traefik entrypoints (`traefik.yaml`) routed by an
 `IngressRouteTCP` beside each service. Traefik runs hostNetwork, so they are
 the real ports on the node IP.
+
+### Autoscaling with KEDA
+
+KEDA (`cluster/lab/apps/keda.yaml`, wave 18, namespace `keda`) scales any
+Deployment or StatefulSet on an external signal: RabbitMQ queue depth, a
+Prometheus query, a cron window, and so on. It builds a normal HPA under
+the hood and serves the `external.metrics.k8s.io` API the HPA reads.
+Scale-to-zero works. Its own metrics land in the "KEDA" Grafana dashboard.
+
+A worker that follows the `orders` queue, one replica per 10 messages,
+zero when idle. KEDA reads the broker URI from a Secret in the workload's
+namespace; copy it once from the operator-generated one (a rebuild
+regenerates the password, so repeat after `terraform apply` from zero):
+
+```powershell
+$uri = kubectl -n messaging get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | % { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
+kubectl -n dev create secret generic rabbitmq-connection --from-literal=host=$uri
+```
+
+```yaml
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: rabbitmq
+  namespace: dev
+spec:
+  secretTargetRef:
+    - parameter: host          # amqp://user:pw@rabbitmq.messaging.svc:5672/
+      name: rabbitmq-connection
+      key: host
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: order-worker
+  namespace: dev
+spec:
+  scaleTargetRef:
+    name: order-worker         # Deployment in the same namespace
+  minReplicaCount: 0
+  maxReplicaCount: 5
+  cooldownPeriod: 60           # seconds at zero messages before scaling to 0
+  triggers:
+    - type: rabbitmq
+      metadata:
+        queueName: orders
+        mode: QueueLength
+        value: "10"
+      authenticationRef:
+        name: rabbitmq
+```
+
+`mode: MessageRate` needs the management API instead of AMQP: use
+`http://user:pw@rabbitmq.messaging.svc:15672/` as the host. A Prometheus
+trigger needs no auth:
+`serverAddress: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090`.
+Watch it work with `kubectl -n dev get scaledobject,hpa -w`; every scaler
+type is at <https://keda.sh/docs/2.20/scalers/>.
 
 ### Authentik in front of things
 

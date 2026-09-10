@@ -21,7 +21,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('argocd', 'grafana', 'postgres', 'rabbitmq', 'elasticsearch', 'pgadmin', 'kibana')]
+    [ValidateSet('argocd', 'grafana', 'postgres', 'rabbitmq', 'elasticsearch', 'pgadmin', 'kibana', 'valkey')]
     [string]$Only
 )
 
@@ -43,7 +43,10 @@ $catalog = @(
     @{ Service = 'elasticsearch'; Url = 'https://elasticsearch.lab.ryfoje.com'; Ns = 'elastic';  Secret = 'elasticsearch-es-elastic-user'; User = '=elastic'; Pass = 'elastic' }
     @{ Service = 'pgadmin';       Url = 'https://pgadmin.lab.ryfoje.com (bootstrap only; real login is Authentik)'; Ns = 'database'; Secret = 'pgadmin-admin'; User = '=see pgadmin.yaml env.email'; Pass = 'password' }
     @{ Service = 'kibana';        Url = 'anonymous service account (Kibana logs you in as this after Authentik)'; Ns = 'elastic'; Secret = 'kibana-anonymous'; User = 'username'; Pass = 'password' }
+    @{ Service = 'valkey';        Url = '192.168.18.80:6379';              Ns = 'dev';           Secret = 'valkey-auth';                   User = '=default'; Pass = 'password' }
 )
+# Not listed: Mailpit (https://mailpit.lab.ryfoje.com) -- Authentik only, and
+# its SMTP on 192.168.18.80:1025 accepts any sender with no credentials.
 
 if ($Only) { $catalog = $catalog | Where-Object Service -eq $Only }
 
@@ -83,6 +86,12 @@ if ($mq -and $mq.Password -notlike '<*') {
     Write-Host 'RabbitMQ:' -ForegroundColor White
     Write-Host "  amqp://$($mq.User):$($mq.Password)@192.168.18.80:5672/"
     Write-Host "  in-cluster: amqp://$($mq.User):$($mq.Password)@rabbitmq.messaging.svc.cluster.local:5672/"
+}
+$vk = $rows | Where-Object Service -eq 'valkey'
+if ($vk -and $vk.Password -notlike '<*') {
+    Write-Host 'Valkey:' -ForegroundColor White
+    Write-Host "  redis://:$($vk.Password)@192.168.18.80:6379/0"
+    Write-Host "  in-cluster: redis://:$($vk.Password)@valkey.dev.svc.cluster.local:6379/0"
 }
 $es = $rows | Where-Object Service -eq 'elasticsearch'
 if ($es -and $es.Password -notlike '<*') {

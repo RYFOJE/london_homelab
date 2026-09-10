@@ -201,6 +201,19 @@ if ($bad) {
 }
 else { Report 'all pods healthy' 'PASS' "$($pods.items.Count) running" }
 
+# KEDA registers the external metrics API; every ScaledObject's HPA reads
+# through it. A Running pod is not enough -- the APIService goes Available
+# only once the operator has patched its self-signed caBundle in.
+$extMetrics = Get-KubeJson @('get','apiservice','v1beta1.external.metrics.k8s.io','-o','json')
+if (-not $extMetrics) {
+    Report 'external metrics API (KEDA)' 'FAIL' 'APIService v1beta1.external.metrics.k8s.io not found -- did the keda app sync?'
+}
+else {
+    $avail = $extMetrics.status.conditions | Where-Object { $_.type -eq 'Available' } | Select-Object -First 1
+    $ok = $avail -and $avail.status -eq 'True'
+    Report 'external metrics API (KEDA)' ($ok ? 'PASS' : 'FAIL') ($ok ? "served by $($extMetrics.spec.service.namespace)/$($extMetrics.spec.service.name)" : ($avail.message ?? 'no Available condition'))
+}
+
 # ============================================================= 6. gitops
 Section '6. GitOps'
 $apps = Get-KubeJson @('get','applications','-n','argocd','-o','json')
@@ -232,8 +245,8 @@ $tp = $pods.items | Where-Object { $_.metadata.namespace -eq 'traefik' }
 $tReady = $tp | Where-Object { $_.status.phase -eq 'Running' }
 Report 'traefik running' ($tReady ? 'PASS' : 'FAIL') "$($tReady.Count)/$($tp.Count) pods"
 
-# 5432/5672 are the Traefik TCP entrypoints for Postgres and AMQP.
-foreach ($port in 80, 443, 5432, 5672) {
+# 5432/5672/6379/1025: Traefik TCP entrypoints for Postgres, AMQP, Valkey, SMTP.
+foreach ($port in 80, 443, 5432, 5672, 6379, 1025) {
     $ok = $false
     try {
         $c = [System.Net.Sockets.TcpClient]::new()

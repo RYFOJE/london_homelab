@@ -56,3 +56,9 @@ variable "cloudflare_api_token" {
   sensitive   = true
   description = "Cloudflare API token for cert-manager's DNS-01 solver. Permissions: Zone/DNS/Edit + Zone/Zone/Read, scoped to the zone the lab domain sits under. Lands in Secret cert-manager/cloudflare-api-token."
 }
+
+variable "proxmox_agent_wait" {
+  type        = bool
+  default     = false
+  description = "Let the Proxmox provider wait on the Talos guest agent (IP lookup, up to 15m) during plan/apply/refresh. Off by default: nothing here reads what the agent reports and the wait is minutes of 'Refreshing state...'. Turn on with -var proxmox_agent_wait=true when you actually want it."
+}

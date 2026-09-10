@@ -1,0 +1,28 @@
+# LAN access on the node IP for laptop-side dev, same pattern as Postgres
+# and AMQP. Entrypoints "valkey" (:6379) and "smtp" (:1025) are opened in
+# traefik.yaml. Valkey is password-protected; Mailpit accepts anything.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: valkey
+  namespace: dev
+spec:
+  entryPoints: [valkey]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: valkey
+          port: 6379
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: smtp
+  namespace: dev
+spec:
+  entryPoints: [smtp]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: mailpit-smtp
+          port: 1025

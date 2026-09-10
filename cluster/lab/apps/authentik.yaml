@@ -50,6 +50,11 @@ spec:
                 secretKeyRef:
                   name: authentik-blueprint-env
                   key: grafana-oidc-client-secret
+            - name: ARGOCD_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: authentik-blueprint-env
+                  key: argocd-oidc-client-secret
 
         # Configuration as code. The ConfigMap comes from cluster/lab/authentik
         # (authentik-config app, wave 6); the worker applies every *.yaml key.

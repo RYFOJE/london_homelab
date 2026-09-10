@@ -2,7 +2,8 @@
 
 Every step, click-ops and CLI, to go from an empty Proxmox host to the full
 lab: Talos, ArgoCD, Authentik, observability, and the dev platform (Postgres,
-pgAdmin, RabbitMQ, Elasticsearch, Kibana). Read top to bottom the first time.
+pgAdmin, RabbitMQ, Elasticsearch, Kibana, Valkey, Mailpit, KEDA). Read top
+to bottom the first time.
 The **Rebuild** and **Change** sections at the end cover the day-two cases.
 
 Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
@@ -57,6 +58,20 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
    published; the lab IPs stay in dnsmasq.
 
 ---
+
+## 1c. GitHub click-ops: Renovate
+
+1. Install the Renovate GitHub App: <https://github.com/apps/renovate> →
+   Install → select this repository only.
+2. That is all; `renovate.json` in the repo is the configuration. Within an
+   hour it opens a "Dependency Dashboard" issue listing every pinned chart,
+   image and tag it found. From then on: minor/patch updates under
+   `cluster/` are merged automatically once the release is **14 days old**
+   and CI is green (ArgoCD applies them); majors and anything under
+   `terraform/` stay as PRs for you, because those need a `terraform apply`.
+3. Branch protection on `main` is optional. If you add it, require the CI
+   checks and allow the Renovate app to bypass PR review, or automerge
+   never fires.
 
 ## 2. Workstation setup
 
@@ -136,10 +151,11 @@ wait gate, four namespaces and six Secrets, ArgoCD, and the root
 Application. Type `yes`. Expect 10-15 minutes.
 
 Known slowness: with the guest agent enabled the Proxmox provider used to sit
-on `Refreshing state...` for up to 15 minutes. `talos.tf` now disables the
-IP wait (`agent.wait_for_ip.disabled`). If a run still stalls there, Ctrl+C
-is safe before the `yes` prompt, and `terraform apply -refresh=false` skips
-the refresh.
+on `Refreshing state...` for up to 15 minutes. That wait is now gated off by
+`var.proxmox_agent_wait` (default `false`); opt in with
+`terraform apply -var proxmox_agent_wait=true` if you ever want the provider
+to poll the agent. If a run still stalls, Ctrl+C is safe before the `yes`
+prompt, and `terraform apply -refresh=false` skips the refresh entirely.
 
 Two errors you may see on an apply against an *existing* cluster, and what
 they mean:
@@ -204,7 +220,7 @@ When `authentik` is Healthy:
 2. Set the `akadmin` password. Use the **same email** you put in
    `pgadmin.yaml`.
 3. Admin interface → Applications → confirm **Lab services** (proxy provider,
-   forward domain) and **Grafana** (OAuth2) exist. Admin interface → Outposts
+   forward domain), **Grafana** and **ArgoCD** (OAuth2) exist. Admin interface → Outposts
    → the embedded outpost lists `lab-forward-auth`. These come from the
    blueprints in `cluster/lab/authentik/blueprints/`; if missing:
    `kubectl -n authentik logs deploy/authentik-worker | Select-String blueprint`.
@@ -254,7 +270,9 @@ function Get-K8sSecret($ns, $name, $key) {
 
 | Check | Expect |
 |---|---|
-| `https://argocd.lab.ryfoje.com` | ArgoCD login. Password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'` (base64) |
+| `https://argocd.lab.ryfoje.com` → Log in via Authentik | You land as admin (group `argocd-admins`). Break-glass: user `admin`, `./scripts/credentials.ps1 -Only argocd` |
+| `https://mailpit.lab.ryfoje.com` | Authentik page once, then the inbox. Send a test: `Send-MailMessage -SmtpServer 192.168.18.80 -Port 1025 -From a@b -To c@d -Subject hi -Body hi` |
+| `redis-cli -h 192.168.18.80 -a <pw> ping` | `PONG`; password from `./scripts/credentials.ps1 -Only valkey` |
 | `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `terraform output -raw grafana_admin_password` |
 | `https://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
 | `https://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
@@ -262,7 +280,8 @@ function Get-K8sSecret($ns, $name, $key) {
 | `https://elasticsearch.lab.ryfoje.com/_cluster/health` | HTTP 401 unauthenticated; `curl.exe -u elastic:<pw>` gives `"status":"green"`. Password: `Get-K8sSecret elastic elasticsearch-es-elastic-user elastic` |
 | `psql -h 192.168.18.80 -U dev dev` | connects with the dev-db-app password |
 | AMQP `amqp://<user>:<pw>@192.168.18.80:5672/` | connects with the rabbitmq-default-user values |
-| `https://prometheus.lab.ryfoje.com/targets` | `rabbitmq` PodMonitor up, everything green except etcd (off by design) |
+| `https://prometheus.lab.ryfoje.com/targets` | `rabbitmq` PodMonitor and the three `keda-*` ServiceMonitors up, everything green except etcd (off by design) |
+| `kubectl get apiservice v1beta1.external.metrics.k8s.io` | `AVAILABLE` is `True` (KEDA's metrics server; `verify.ps1` section 5 checks the same). No credentials: KEDA has no UI. The README "Autoscaling with KEDA" example is the end-to-end test |
 
 In-cluster names for your own workloads are in the README "Dev platform"
 table.

@@ -1,0 +1,65 @@
+# KEDA: event-driven autoscaling for your own workloads. A ScaledObject in
+# any namespace scales a Deployment or StatefulSet on RabbitMQ queue depth,
+# a Prometheus query, a cron window, and ~70 other sources; KEDA drives a
+# normal HPA underneath and registers itself as the external.metrics.k8s.io
+# API so the HPA has something to read. Nothing in the platform depends on
+# it. README "Autoscaling with KEDA" has a working RabbitMQ example.
+#
+# Wave 18: after kube-prometheus-stack (15) because the ServiceMonitors
+# below need its CRDs. RabbitMQ (22) landing later does not matter: a
+# scaler only connects once a ScaledObject references it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: keda
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "18"
+spec:
+  project: default
+  source:
+    repoURL: https://kedacore.github.io/charts
+    chart: keda
+    targetRevision: 2.20.2
+    helm:
+      values: |
+        # Chart default is Always: every pod restart becomes a ghcr.io
+        # round-trip on a single node that already has the image.
+        image:
+          pullPolicy: IfNotPresent
+
+        # Expose /metrics on all three components and let the Prometheus
+        # Operator scrape them (it honours monitors from every namespace).
+        # keda_scaler_* and keda_scaled_object_errors are what the "KEDA"
+        # Grafana dashboard (cluster/lab/observability/dashboards) reads.
+        prometheus:
+          operator:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+          metricServer:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+          webhooks:
+            enabled: true
+            serviceMonitor:
+              enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: keda
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      # The ScaledJob CRD alone is ~330 KB, past the 262144-byte
+      # last-applied-configuration annotation limit.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }
+---
+# The operator generates its own TLS for the admission webhook and the
+# metrics APIService (Secret keda/kedaorg-certs) and patches the caBundle
+# into both at runtime. The chart renders neither field, so ArgoCD sees no
+# drift; no ignoreDifferences needed.

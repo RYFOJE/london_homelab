@@ -123,6 +123,7 @@ resource "kubernetes_secret_v1" "authentik_blueprint_env" {
 
   data = {
     "grafana-oidc-client-secret" = random_password.grafana_oidc_client_secret.result
+    "argocd-oidc-client-secret"  = random_password.argocd_oidc_client_secret.result
   }
 }
 
@@ -221,5 +222,63 @@ resource "kubernetes_secret_v1" "cloudflare_api_token" {
 
   data = {
     "api-token" = var.cloudflare_api_token
+  }
+}
+
+# ArgoCD <-> Authentik OIDC client secret. ArgoCD reads it from a Secret
+# labelled app.kubernetes.io/part-of=argocd (the $argocd-oidc:oidc.clientSecret
+# reference in bootstrap.tf); Authentik's blueprint reads the same value via
+# !Env ARGOCD_OIDC_CLIENT_SECRET from authentik-blueprint-env.
+
+resource "random_password" "argocd_oidc_client_secret" {
+  length  = 64
+  special = false
+}
+
+resource "kubernetes_secret_v1" "argocd_oidc" {
+  # The argocd namespace is created by the chart (create_namespace = true).
+  depends_on = [helm_release.argocd]
+
+  metadata {
+    name      = "argocd-oidc"
+    namespace = "argocd"
+    labels = {
+      "app.kubernetes.io/part-of" = "argocd"
+    }
+  }
+
+  data = {
+    "oidc.clientSecret" = random_password.argocd_oidc_client_secret.result
+  }
+}
+
+# Valkey password. The cache is reachable from the LAN (Traefik :6379), so
+# it needs one even in a lab.
+
+resource "random_password" "valkey" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_namespace_v1" "dev" {
+  depends_on = [terraform_data.wait_for_apiserver]
+
+  metadata {
+    name = "dev"
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "kubernetes_secret_v1" "valkey_auth" {
+  metadata {
+    name      = "valkey-auth"
+    namespace = kubernetes_namespace_v1.dev.metadata[0].name
+  }
+
+  data = {
+    "password" = random_password.valkey.result
   }
 }

@@ -18,12 +18,38 @@ resource "helm_release" "argocd" {
   version = "10.8.4"
 
   values = [yamlencode({
+    global = {
+      # ArgoCD fetches Authentik's OIDC discovery document itself, and
+      # in-cluster DNS cannot resolve *.lab.<domain> (README "Known gaps").
+      # Pin the name to the node: Traefik answers there with the real cert.
+      hostAliases = [{
+        ip        = local.talos.ip
+        hostnames = ["auth.${local.domain}"]
+      }]
+    }
     configs = {
       params = {
         # Traefik terminates TLS; stop ArgoCD doing it too and redirect-looping.
         "server.insecure" = true
       }
+      # Authentik group -> ArgoCD role. Everyone else who can log in is
+      # read-only. The local admin login stays enabled as break-glass.
+      rbac = {
+        "policy.default" = "role:readonly"
+        "policy.csv"     = "g, argocd-admins, role:admin"
+        "scopes"         = "[groups, email]"
+      }
       cm = {
+        url = "https://argocd.${local.domain}"
+        # Provider/application: cluster/lab/authentik/blueprints/argocd.yaml.
+        # Secret argocd-oidc is written by secrets.tf.
+        "oidc.config" = <<-YAML
+          name: Authentik
+          issuer: https://auth.${local.domain}/application/o/argocd/
+          clientID: argocd
+          clientSecret: $argocd-oidc:oidc.clientSecret
+          requestedScopes: ["openid", "profile", "email"]
+        YAML
         # ArgoCD >= 1.8 ships NO health check for Application resources, so
         # in an app-of-apps the root app considers every child "Healthy" the
         # instant it exists and sync waves in cluster/lab/apps order nothing.
@@ -72,6 +98,7 @@ resource "helm_release" "root_app" {
     kubernetes_namespace_v1.elastic,
     kubernetes_namespace_v1.database,
     kubernetes_namespace_v1.cert_manager,
+    kubernetes_namespace_v1.dev,
   ]
 
   name       = "root"

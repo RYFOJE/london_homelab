@@ -1,0 +1,110 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "timezone": "Europe/London",
+  "schedule": ["before 6am"],
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 8,
+
+  "minimumReleaseAge": "14 days",
+  "internalChecksFilter": "strict",
+  "prCreation": "not-pending",
+
+  "labels": ["renovate"],
+  "commitMessagePrefix": "deps:",
+
+  "argocd": {
+    "managerFilePatterns": ["/^cluster/lab/apps/.+\\.yaml$/"]
+  },
+  "kubernetes": {
+    "managerFilePatterns": ["/^cluster/lab/.+\\.yaml$/"]
+  },
+
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Elasticsearch / Kibana CR versions (cluster/lab/elastic)",
+      "managerFilePatterns": ["/^cluster/lab/elastic/elasticsearch\\.yaml$/"],
+      "matchStrings": ["\\n  version: (?<currentValue>\\d+\\.\\d+\\.\\d+)\\n"],
+      "depNameTemplate": "docker.elastic.co/elasticsearch/elasticsearch",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^cluster/lab/elastic/kibana\\.yaml$/"],
+      "matchStrings": ["\\n  version: (?<currentValue>\\d+\\.\\d+\\.\\d+)\\n"],
+      "depNameTemplate": "docker.elastic.co/kibana/kibana",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Image override that must move with the rabbitmq operator git tag",
+      "managerFilePatterns": ["/^cluster/lab/apps/rabbitmq-operator\\.yaml$/"],
+      "matchStrings": ["=ghcr\\.io/rabbitmq/cluster-operator:(?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "ghcr.io/rabbitmq/cluster-operator",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Talos and Kubernetes versions in variables.tf",
+      "managerFilePatterns": ["/^terraform/variables\\.tf$/"],
+      "matchStrings": ["variable \"talos_version\" \\{[^}]*default\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "siderolabs/talos",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^terraform/variables\\.tf$/"],
+      "matchStrings": ["variable \"kubernetes_version\" \\{[^}]*default\\s*=\\s*\"(?<currentValue>\\d+\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "kubernetes/kubernetes",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$"
+    }
+  ],
+
+  "packageRules": [
+    {
+      "description": "GitOps side: minor and patch merge themselves once the release is 14 days old and CI is green. ArgoCD applies the result.",
+      "matchFileNames": ["cluster/**"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true,
+      "automergeType": "pr",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Majors always wait for a human.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["renovate", "major"]
+    },
+    {
+      "description": "Terraform side needs a manual `terraform apply`; a merged PR nobody applied is drift. PRs only.",
+      "matchFileNames": ["terraform/**"],
+      "automerge": false,
+      "labels": ["renovate", "needs-terraform-apply"]
+    },
+    {
+      "description": "Talos and Kubernetes move together and reboot the node: one PR, never automerged.",
+      "matchPackageNames": ["siderolabs/talos", "kubernetes/kubernetes"],
+      "groupName": "talos-and-kubernetes",
+      "automerge": false
+    },
+    {
+      "description": "Operator git tag and its image override in one PR.",
+      "matchPackageNames": ["rabbitmq/cluster-operator", "ghcr.io/rabbitmq/cluster-operator"],
+      "groupName": "rabbitmq-operator"
+    },
+    {
+      "description": "Elasticsearch and Kibana must match versions.",
+      "matchPackageNames": ["docker.elastic.co/elasticsearch/elasticsearch", "docker.elastic.co/kibana/kibana"],
+      "groupName": "elastic-stack"
+    },
+    {
+      "description": "Loki schema and Prometheus CRDs are the two upgrades that have bitten homelabs; always read the notes.",
+      "matchPackageNames": ["loki", "kube-prometheus-stack"],
+      "matchUpdateTypes": ["major"],
+      "labels": ["renovate", "major", "read-release-notes"]
+    }
+  ]
+}

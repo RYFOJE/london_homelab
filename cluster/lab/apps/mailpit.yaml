@@ -1,0 +1,52 @@
+# SMTP sink with a web UI: point every dev app's SMTP at it and read the
+# mail here instead of in a real inbox. Wave 12: after the forward-auth
+# Middleware (6). Namespace "dev" is where your own workloads go, so they
+# reach it as mailpit-smtp.dev.svc.cluster.local:1025 with no auth.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mailpit
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  project: default
+  source:
+    repoURL: https://jouve.github.io/charts/
+    chart: mailpit
+    targetRevision: 0.36.0
+    helm:
+      values: |
+        service:
+          smtp:
+            # 1025 is the conventional dev SMTP port; the LAN gets the same
+            # number through Traefik's "smtp" entrypoint (cluster/lab/dev).
+            port: 1025
+
+        ingress:
+          enabled: true
+          ingressClassName: traefik
+          hostname: mailpit.lab.ryfoje.com
+          path: /
+          pathType: Prefix
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik-forward-auth@kubernetescrd
+
+        # Keeps mail across restarts; 1Gi is thousands of messages.
+        persistence:
+          enabled: true
+          storageClass: local-path
+          size: 1Gi
+
+        resources:
+          requests: { cpu: 10m, memory: 32Mi }
+          limits: { memory: 128Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

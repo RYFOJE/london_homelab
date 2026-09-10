@@ -1,0 +1,25 @@
+# Plain manifests for the dev namespace: Valkey and the LAN TCP routes for
+# Valkey and Mailpit's SMTP. Wave 12 alongside mailpit. Terraform creates
+# the namespace and the valkey-auth Secret (secrets.tf).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: dev
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/dev
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: dev
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

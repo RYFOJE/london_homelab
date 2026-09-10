@@ -26,6 +26,15 @@ configMapGenerator:
       labels: { grafana_dashboard: "1" }
       annotations: { grafana_folder: Lab }
 
+  # Upstream's own dashboard, unmodified:
+  # https://github.com/kedacore/keda/blob/v2.20.2/config/grafana/keda-dashboard.json
+  # Re-fetch when cluster/lab/apps/keda.yaml moves to a new minor.
+  - name: grafana-dashboard-keda
+    files: [keda.json]
+    options:
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: Lab }
+
 generatorOptions:
   # The sidecar reloads on content change anyway; hash suffixes just leave
   # orphaned ConfigMaps behind on every edit.
