@@ -48,6 +48,18 @@ spec:
           type: Recreate
           rollingUpdate: null
 
+        # Write the node IP into every Ingress's status.loadBalancer.
+        # Nothing else does it here: publishedService copies status from the
+        # Traefik Service, and we disabled that for hostNetwork. Without an
+        # address, ArgoCD never marks an Ingress Healthy and the app sits at
+        # "Progressing" forever even though routing works fine.
+        providers:
+          kubernetesIngress:
+            publishedService:
+              enabled: false
+            ingressEndpoint:
+              ip: "192.168.18.80"
+
         ports:
           web:
             port: 80

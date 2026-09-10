@@ -61,6 +61,26 @@ function Get-KubeJson {
     try { return ($out | Out-String | ConvertFrom-Json) } catch { return $null }
 }
 
+function Get-HttpStatus {
+    <#  Invoke-WebRequest with -MaximumRedirection 0 THROWS "Operation is not
+        valid due to the current state of the object" on any 3xx, even with
+        -SkipHttpErrorCheck. Anything that redirects to a login flow trips it.
+        HttpClient reports the real status instead. #>
+    param([string]$Url, [string]$HostHeader)
+    $handler = [System.Net.Http.HttpClientHandler]::new()
+    $handler.AllowAutoRedirect = $false
+    $handler.ServerCertificateCustomValidationCallback = { $true }
+    $client = [System.Net.Http.HttpClient]::new($handler)
+    $client.Timeout = [TimeSpan]::FromSeconds(10)
+    try {
+        $req = [System.Net.Http.HttpRequestMessage]::new('GET', $Url)
+        if ($HostHeader) { $req.Headers.Host = $HostHeader }
+        $resp = $client.SendAsync($req).GetAwaiter().GetResult()
+        return [int]$resp.StatusCode
+    }
+    finally { $client.Dispose() }
+}
+
 $TerraformDir = [System.IO.Path]::GetFullPath($TerraformDir)
 $locals = Join-Path $TerraformDir 'locals.tf'
 $tfvars = Join-Path $TerraformDir 'terraform.tfvars'
@@ -215,24 +235,71 @@ foreach ($port in 80, 443) {
     Report "node listening on :$port" ($ok ? 'PASS' : 'FAIL')
 }
 
-# Hit the node IP directly with a Host header. Using the name would test
-# THIS machine's resolver too, which fails until DHCP points at the lab
-# resolver -- and that would mask a genuine ingress problem.
-try {
-    $r = Invoke-WebRequest "http://$nodeIp/" -Headers @{ Host = "argocd.$domain" } `
-        -SkipHeaderValidation -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 10
-    $code = [int]$r.StatusCode
-    Report "ingress routes argocd.$domain" (($code -lt 400) ? 'PASS' : 'FAIL') "HTTP $code"
+# Every Ingress in the cluster, checked three ways: does its host match the
+# domain we think we are running, does the lab resolver answer for it, and
+# does Traefik actually route it.
+$ings = Get-KubeJson @('get', 'ingress', '-A', '-o', 'json')
+$hosts = @()
+if ($ings) {
+    foreach ($i in $ings.items) {
+        foreach ($rule in $i.spec.rules) {
+            if ($rule.host) {
+                $hosts += [pscustomobject]@{
+                    Host = $rule.host
+                    Ref  = "$($i.metadata.namespace)/$($i.metadata.name)"
+                }
+            }
+        }
+    }
 }
-catch { Report "ingress routes argocd.$domain" 'FAIL' $_.Exception.Message }
+if ($hosts.Count -eq 0) { Report 'ingress hosts found' 'FAIL' 'no Ingress with a host rule' }
 
-# And separately: does the name work end-to-end from here?
-try {
-    $r = Invoke-WebRequest "http://argocd.$domain" -SkipHttpErrorCheck -MaximumRedirection 0 -TimeoutSec 10
-    Report "http://argocd.$domain from this machine" 'PASS' "HTTP $([int]$r.StatusCode)"
+foreach ($h in $hosts) {
+    # 1. does it belong to this cluster's domain? catches config drift where a
+    #    stale render leaves a host from someone else's example values.
+    if ($h.Host -notlike "*.$domain") {
+        Report "$($h.Ref) host" 'FAIL' "$($h.Host) is not under $domain -- stale render or hardcoded value"
+        continue
+    }
+
+    # 2. does the lab resolver answer for it?
+    $resolved = $null
+    try {
+        $resolved = (Resolve-DnsName $h.Host -Server $dnsIp -Type A -ErrorAction Stop |
+            Where-Object { $_.IPAddress } | Select-Object -First 1).IPAddress
+    }
+    catch { }
+    if ($resolved -ne $nodeIp) {
+        Report "$($h.Host) resolves" 'FAIL' ($resolved ? "got $resolved" : "no answer from $dnsIp")
+        continue
+    }
+
+    # 3. does Traefik route it? Host header against the node IP, so this tests
+    #    the ingress and not this machine's resolver.
+    try {
+        $code = Get-HttpStatus -Url "http://$nodeIp/" -HostHeader $h.Host
+        # 3xx is a healthy answer: apps that redirect to a login flow are working.
+        Report "$($h.Host)" (($code -lt 400) ? 'PASS' : 'FAIL') "HTTP $code via $($h.Ref)"
+    }
+    catch { Report "$($h.Host)" 'FAIL' $_.Exception.Message }
 }
-catch {
-    Report "http://argocd.$domain from this machine" 'WARN' 'name does not resolve here -- expected until DHCP points at the lab resolver'
+
+# And end-to-end from this machine, which additionally exercises your own
+# resolver -- NRPT rule, VPN adapters and all.
+Section '8. From this machine'
+foreach ($h in $hosts) {
+    try {
+        $code = Get-HttpStatus -Url "http://$($h.Host)"
+        Report "http://$($h.Host)" (($code -lt 400) ? 'PASS' : 'FAIL') "HTTP $code"
+    }
+    catch {
+        # Distinguish "your resolver cannot find it" from "it answered badly".
+        $why = if ($_.Exception.Message -match 'No such host|not known|resolve') {
+            'name does not resolve from here -- NRPT rule or VPN adapters'
+        }
+        else { $_.Exception.Message }
+        Report "http://$($h.Host)" 'WARN' $why
+    }
 }
 
 # ============================================================== summary
