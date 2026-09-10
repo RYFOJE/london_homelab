@@ -23,7 +23,8 @@ cluster/lab/database/   dev Postgres (CNPG Cluster) + TCP route
 cluster/lab/messaging/  RabbitMQ cluster, management Ingress, AMQP route, PodMonitor
 cluster/lab/elastic/    Elasticsearch, Kibana, their Ingresses
 cluster/lab/observability/dashboards/  Grafana dashboards as code (kustomize -> ConfigMaps)
-scripts/              preflight.ps1 (before apply), verify.ps1 (after)
+cluster/lab/observability/monitors/    Pod/ServiceMonitors for Traefik, ArgoCD, cert-manager
+scripts/              preflight.ps1 (before apply), verify.ps1 (after), credentials.ps1 (every password)
 ```
 
 ## Run order

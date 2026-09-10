@@ -1,0 +1,20 @@
+# Every ArgoCD component exposes a container port named "metrics"
+# (controller 8082, server 8083, repo-server 8084, applicationset 8080,
+# notifications 9001, dex 5558). One PodMonitor over the part-of label
+# picks them all up; redis has no such port and is simply skipped.
+# Feeds the "ArgoCD" community dashboard (gnetId 14584).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: argocd
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames: [argocd]
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: argocd
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

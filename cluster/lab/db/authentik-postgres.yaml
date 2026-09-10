@@ -22,3 +22,7 @@ spec:
   postgresql:
     parameters:
       max_connections: "200"
+
+  # Operator-created PodMonitor -> "CloudNativePG" Grafana dashboard.
+  monitoring:
+    enablePodMonitor: true

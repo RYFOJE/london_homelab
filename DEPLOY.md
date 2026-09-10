@@ -236,7 +236,14 @@ debug without touching Let's Encrypt's production rate limits, point
 
 ## 7. Prove each service
 
-One helper for reading passwords:
+Every credential in one table, plus ready-made connection strings:
+
+```powershell
+./scripts/credentials.ps1
+./scripts/credentials.ps1 -Only postgres
+```
+
+The `Get-K8sSecret` calls in the table below are what it does per row.
 
 ```powershell
 function Get-K8sSecret($ns, $name, $key) {
@@ -294,7 +301,18 @@ Router DNS does not change; the LXC gets the same IP.
 ## Change (day two)
 
 - **GitOps side** (`cluster/`): commit, push, ArgoCD applies within ~3
-  minutes. `./scripts/verify.ps1` afterwards.
+  minutes. `./scripts/verify.ps1` afterwards. To skip the wait:
+
+  ```powershell
+  kubectl -n argocd annotate application root argocd.argoproj.io/refresh=normal --overwrite
+  ```
+
+  (`refresh=hard` also drops cached manifests.) If an app sits OutOfSync
+  and automation does not act, force one sync:
+
+  ```powershell
+  kubectl -n argocd patch application <name> --type=merge -p '{"operation":{"initiatedBy":{"username":"admin"},"sync":{"revision":"HEAD","prune":true}}}'
+  ```
 - **Terraform side**: `terraform apply` from `terraform/`. Changing
   `talos.memory` or `cores` reboots the VM once (the provider reports it done
   in ~5 minutes, then the apiserver gate waits for Kubernetes to be back);

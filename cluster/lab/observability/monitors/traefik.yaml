@@ -1,0 +1,18 @@
+# Traefik's metrics entrypoint (:9101, traefik.yaml). PodMonitor because the
+# chart's Service is disabled for hostNetwork. Feeds the "Traefik" community
+# dashboard (gnetId 17346).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: traefik
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames: [traefik]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s

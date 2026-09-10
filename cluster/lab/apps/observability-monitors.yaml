@@ -1,0 +1,24 @@
+# PodMonitors/ServiceMonitors for components that cannot ship their own.
+# Wave 30: needs the Prometheus Operator CRDs (15). Same shape as
+# observability-dashboards.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-monitors
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/observability/monitors
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

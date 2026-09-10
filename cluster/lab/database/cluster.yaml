@@ -27,6 +27,11 @@ spec:
     requests: { cpu: 100m, memory: 256Mi }
     limits: { memory: 1Gi }
 
+  # The operator creates a PodMonitor; Prometheus honours monitors from any
+  # namespace. Feeds the "CloudNativePG" community dashboard (gnetId 20417).
+  monitoring:
+    enablePodMonitor: true
+
   # Connect via "dev-db-rw.database.svc.cluster.local:5432", or from the LAN
   # via 192.168.18.80:5432 (Traefik TCP entrypoint, see ingressroute-tcp.yaml).
   postgresql:

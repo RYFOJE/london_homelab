@@ -1,0 +1,19 @@
+# The controller's Service exposes http-metrics on 9402 (chart default
+# prometheus.enabled=true). Feeds the "cert-manager" community dashboard
+# (gnetId 20340): certificate expiry, ACME order/challenge counts.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames: [cert-manager]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+      app.kubernetes.io/component: controller
+  endpoints:
+    - port: http-metrics
+      path: /metrics
+      interval: 60s
