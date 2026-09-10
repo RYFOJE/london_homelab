@@ -294,8 +294,8 @@ foreach ($h in $hosts) {
 Section '8. From this machine'
 foreach ($h in $hosts) {
     try {
-        $code = Get-HttpStatus -Url "http://$($h.Host)"
-        Report "http://$($h.Host)" (($code -lt 400 -or $code -eq 401) ? 'PASS' : 'FAIL') "HTTP $code"
+        $code = Get-HttpStatus -Url "https://$($h.Host)"
+        Report "https://$($h.Host)" (($code -lt 400 -or $code -eq 401) ? 'PASS' : 'FAIL') "HTTP $code"
     }
     catch {
         # Distinguish "your resolver cannot find it" from "it answered badly".
@@ -303,8 +303,35 @@ foreach ($h in $hosts) {
             'name does not resolve from here -- NRPT rule or VPN adapters'
         }
         else { $_.Exception.Message }
-        Report "http://$($h.Host)" 'WARN' $why
+        Report "https://$($h.Host)" 'WARN' $why
     }
+}
+
+# ================================================================ 9. tls
+# Is Traefik serving the Let's Encrypt wildcard, or still its own self-signed
+# placeholder? One handshake with SNI against the node answers for every host.
+Section '9. TLS'
+if ($hosts.Count -gt 0) {
+    $sni = $hosts[0].Host
+    try {
+        $tcp = [System.Net.Sockets.TcpClient]::new($nodeIp, 443)
+        $ssl = [System.Net.Security.SslStream]::new($tcp.GetStream(), $false, { $true })
+        $ssl.AuthenticateAsClient($sni)
+        $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($ssl.RemoteCertificate)
+        $issuer = $cert.Issuer
+        $days = [int]($cert.NotAfter - (Get-Date)).TotalDays
+        $ssl.Dispose(); $tcp.Dispose()
+        if ($issuer -match "Let's Encrypt") {
+            Report "certificate for $sni" (($days -gt 14) ? 'PASS' : 'WARN') "$($cert.Subject) by $issuer, $days days left"
+        }
+        elseif ($issuer -match 'TRAEFIK DEFAULT') {
+            Report "certificate for $sni" 'FAIL' 'Traefik self-signed placeholder -- kubectl -n traefik describe certificate lab-wildcard'
+        }
+        else {
+            Report "certificate for $sni" 'WARN' "issued by $issuer"
+        }
+    }
+    catch { Report "certificate for $sni" 'FAIL' $_.Exception.Message }
 }
 
 # ============================================================== summary

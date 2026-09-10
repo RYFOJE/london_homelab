@@ -97,7 +97,8 @@ spec:
             hosts: [prometheus.lab.ryfoje.com]
             paths: ["/"]
             pathType: Prefix
-            # tls stays off until a ClusterIssuer exists (see cert-manager.yaml).
+            # No tls: block needed -- Traefik's default store (traefik.yaml)
+            # serves the lab wildcard on :443 and redirects :80 there.
 
         alertmanager:
           enabled: true
@@ -235,8 +236,7 @@ spec:
           grafana.ini:
             server:
               domain: grafana.lab.ryfoje.com
-              # http until a ClusterIssuer exists; flip with the ingress.
-              root_url: http://grafana.lab.ryfoje.com
+              root_url: https://grafana.lab.ryfoje.com
             users:
               auto_assign_org: true
               auto_assign_org_role: Viewer
@@ -244,7 +244,7 @@ spec:
               # Login form stays: the local admin is the break-glass path.
               disable_login_form: false
               oauth_auto_login: false
-              signout_redirect_url: http://auth.lab.ryfoje.com/application/o/grafana/end-session/
+              signout_redirect_url: https://auth.lab.ryfoje.com/application/o/grafana/end-session/
             feature_toggles:
               enable: traceqlEditor traceToProfiles
             unified_alerting:
@@ -261,7 +261,7 @@ spec:
               name: Authentik
               allow_sign_up: true
               scopes: openid profile email
-              auth_url: http://auth.lab.ryfoje.com/application/o/authorize/
+              auth_url: https://auth.lab.ryfoje.com/application/o/authorize/
               token_url: http://authentik-server.authentik.svc.cluster.local/application/o/token/
               api_url: http://authentik-server.authentik.svc.cluster.local/application/o/userinfo/
               # Groups come from the profile scope. Anyone else is a Viewer.

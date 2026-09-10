@@ -1,0 +1,20 @@
+# One wildcard for the whole lab. Lives in the traefik namespace because
+# that is where the Secret has to be for Traefik's default TLS store
+# (traefik.yaml: tlsStore.default). Every Ingress on :443 serves this cert
+# with no tls: block of its own, and a new service is covered the moment its
+# Ingress exists. One issuance per ~60 days instead of one per host.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lab-wildcard
+  namespace: traefik
+spec:
+  secretName: lab-wildcard-tls
+  issuerRef:
+    name: letsencrypt
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.lab.ryfoje.com"
+    - lab.ryfoje.com
+  privateKey:
+    rotationPolicy: Always

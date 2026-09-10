@@ -13,10 +13,11 @@ terraform/            VM, LXC resolver, Talos bootstrap, ArgoCD install. Nothing
   dns.tf              dnsmasq LXC  (*.lab.<domain> -> node IP)
   talos.tf            Talos image, VM, machine config, bootstrap
   wait.tf             blocks until kube-apiserver answers
-  secrets.tf          Authentik signing key + Grafana admin (kept in tfstate)
+  secrets.tf          generated credentials + the Cloudflare token (kept in tfstate)
   bootstrap.tf        argo-cd + argocd-apps root Application -> cluster/lab/apps
 cluster/lab/apps/     one ArgoCD Application per platform component (sync-waved)
 cluster/lab/db/       plain manifests the apps reference (Authentik's CNPG Cluster)
+cluster/lab/tls/        ClusterIssuers (Let's Encrypt, DNS-01) + the lab wildcard Certificate
 cluster/lab/authentik/  forward-auth Middleware + Authentik blueprints (config as code)
 cluster/lab/database/   dev Postgres (CNPG Cluster) + TCP route
 cluster/lab/messaging/  RabbitMQ cluster, management Ingress, AMQP route, PodMonitor
@@ -49,7 +50,11 @@ the key named in `ssh_public_key_path`.
 
 1. Proxmox API token for Terraform — uncheck Privilege Separation.
 2. Router DHCP option 6 -> the resolver LXC IP (`terraform output dns_server_ip`).
-3. Cloudflare API token for DNS-01 (once the ClusterIssuer exists).
+3. Cloudflare API token (Zone/DNS/Edit + Zone/Zone/Read on `ryfoje.com`)
+   in `terraform.tfvars` -> `cloudflare_api_token`. cert-manager issues one
+   `*.lab.ryfoje.com` wildcard by DNS-01 (`cluster/lab/tls/`); Traefik serves
+   it as the default cert on :443 and 301s :80 there. New Ingresses need no
+   `tls:` block.
 4. This repo, public, at `git_repo_url`.
 
 ## Back this up or you cannot rebuild
@@ -63,7 +68,6 @@ the key named in `ssh_public_key_path`.
 
 ## Known gaps
 
-- No ClusterIssuer yet: ArgoCD and Authentik are served over plain HTTP.
 - External Secrets is deployed without a `ClusterSecretStore`.
 - No CoreDNS forward for the lab domain: in-cluster clients cannot resolve
   `*.lab.<domain>`. Grafana works around it by calling Authentik's token and
@@ -79,7 +83,7 @@ the key named in `ssh_public_key_path`.
 kube-prometheus-stack (Prometheus, Alertmanager, Grafana), Loki, Tempo and
 Grafana Alloy, all in the `observability` namespace, waves 15-30.
 
-- Grafana: `http://grafana.lab.ryfoje.com` — local admin password:
+- Grafana: `https://grafana.lab.ryfoje.com` — local admin password:
   `terraform output -raw grafana_admin_password`
 - Prometheus / Alertmanager: `http://prometheus.` / `http://alertmanager.`
   — deliberately never behind SSO.
@@ -101,12 +105,12 @@ The Talos VM is sized at 12 GiB for this; `locals.tf` is where that lives.
 | Service | In-cluster | From the LAN | Credentials |
 |---|---|---|---|
 | Postgres (CNPG `dev-db`, db `dev`) | `dev-db-rw.database.svc.cluster.local:5432` | `192.168.18.80:5432` | Secret `database/dev-db-app` |
-| pgAdmin | — | `http://pgadmin.lab.ryfoje.com` | Authentik login only |
+| pgAdmin | — | `https://pgadmin.lab.ryfoje.com` | Authentik login only |
 | RabbitMQ (AMQP) | `rabbitmq.messaging.svc.cluster.local:5672` | `192.168.18.80:5672` | Secret `messaging/rabbitmq-default-user` |
-| RabbitMQ management | — | `http://rabbitmq.lab.ryfoje.com` | Authentik, then the Secret above |
-| Elasticsearch | `http://elasticsearch-es-http.elastic.svc.cluster.local:9200` | `http://elasticsearch.lab.ryfoje.com` | Secret `elastic/elasticsearch-es-elastic-user`, user `elastic` |
-| Kibana | — | `http://kibana.lab.ryfoje.com` | Authentik login only |
-| Grafana | — | `http://grafana.lab.ryfoje.com` | "Sign in with Authentik", or the break-glass admin |
+| RabbitMQ management | — | `https://rabbitmq.lab.ryfoje.com` | Authentik, then the Secret above |
+| Elasticsearch | `http://elasticsearch-es-http.elastic.svc.cluster.local:9200` | `https://elasticsearch.lab.ryfoje.com` | Secret `elastic/elasticsearch-es-elastic-user`, user `elastic` |
+| Kibana | — | `https://kibana.lab.ryfoje.com` | Authentik login only |
+| Grafana | — | `https://grafana.lab.ryfoje.com` | "Sign in with Authentik", or the break-glass admin |
 
 Reading a password:
 

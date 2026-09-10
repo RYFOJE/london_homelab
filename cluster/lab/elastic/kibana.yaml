@@ -20,7 +20,7 @@ spec:
         disabled: true
 
   config:
-    server.publicBaseUrl: http://kibana.lab.ryfoje.com
+    server.publicBaseUrl: https://kibana.lab.ryfoje.com
     # kibana.yml expands ${VAR} from the environment at startup.
     xpack.security.authc.providers:
       anonymous.anonymous1:

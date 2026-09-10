@@ -73,9 +73,24 @@ spec:
         additionalArguments:
           - "--providers.kubernetesingress.ingressendpoint.ip=192.168.18.80"
 
+        # Default certificate for every router on :443. The Secret is the
+        # Let's Encrypt wildcard from cluster/lab/tls. Until it is issued
+        # Traefik serves its own self-signed cert, so browsers complain for
+        # the first couple of minutes after a fresh build and then stop.
+        tlsStore:
+          default:
+            defaultCertificate:
+              secretName: lab-wildcard-tls
+
         ports:
           web:
             port: 80
+            # Everything on :80 becomes a 301 to :443. Ingresses need no
+            # tls: block: websecure.tls.enabled (chart default) makes every
+            # router on 443 terminate TLS with the default cert above.
+            redirectTo:
+              port: websecure
+              permanent: true
           websecure:
             port: 443
           # Chart default is 9100 -- the same host port node-exporter binds
@@ -102,8 +117,6 @@ spec:
             expose:
               default: true
             exposedPort: 5672
-        # No http->https redirect yet: there is no ClusterIssuer, so nothing
-        # is serving TLS. Add it once cert-manager can issue.
   destination:
     server: https://kubernetes.default.svc
     namespace: traefik

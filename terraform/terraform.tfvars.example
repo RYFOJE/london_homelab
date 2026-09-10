@@ -12,3 +12,7 @@ lxc_template_url = "http://download.proxmox.com/images/system/debian-13-standard
 talos_schematic_id = "REPLACE_WITH_FACTORY_SCHEMATIC_ID"
 
 git_repo_url = "https://github.com/ryfoje2/london_homelab.git"
+
+# Cloudflare -> My Profile -> API Tokens -> "Edit zone DNS" template, scoped
+# to the zone above lab.<domain>. cert-manager uses it for DNS-01 wildcard certs.
+cloudflare_api_token = "REPLACE_WITH_CLOUDFLARE_TOKEN"

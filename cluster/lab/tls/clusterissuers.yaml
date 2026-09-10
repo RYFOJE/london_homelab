@@ -1,0 +1,48 @@
+# DNS-01 via Cloudflare. HTTP-01 cannot work here: Let's Encrypt would have
+# to reach :80 on a public IP, and *.lab.ryfoje.com only resolves on the LAN.
+# DNS-01 writes _acme-challenge.lab.ryfoje.com as a TXT record in the PUBLIC
+# zone and deletes it again. The A records stay private in dnsmasq.
+#
+# The token Secret is written by Terraform (secrets.tf) from
+# var.cloudflare_api_token. cert-manager checks propagation itself before
+# asking Let's Encrypt to validate, so a bad token shows up as a Challenge
+# error and never counts against the failed-validation rate limit.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: ryfoje2@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-account-key
+    solvers:
+      - selector:
+          dnsZones: [ryfoje.com]
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token
+---
+# Same thing against the staging CA: untrusted certs, generous limits. Point
+# a Certificate's issuerRef here when debugging issuance, never in normal use.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: ryfoje2@gmail.com
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+    solvers:
+      - selector:
+          dnsZones: [ryfoje.com]
+        dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: api-token

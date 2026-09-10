@@ -20,7 +20,7 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
 | OpenSSH client with the agent service | Windows optional feature "OpenSSH Client" |
 | An SSH keypair | `ssh-keygen -t ed25519` |
 | This repo, public, on GitHub | ArgoCD clones it anonymously at bootstrap |
-| A domain you control on Cloudflare (`ryfoje.com`) | only needed for TLS later; the lab is HTTP today |
+| A domain you control on Cloudflare (`ryfoje.com`) | cert-manager writes DNS-01 challenge records there for the `*.lab.ryfoje.com` wildcard |
 
 ---
 
@@ -44,6 +44,18 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
    (`https://<ip>:8006/`). Use the IP, not a name: nothing resolves names
    until this repo builds the resolver.
 
+## 1b. Cloudflare click-ops
+
+1. Cloudflare dashboard → My Profile → API Tokens → Create Token → use the
+   **Edit zone DNS** template.
+2. Permissions: `Zone / DNS / Edit` and `Zone / Zone / Read`.
+   Zone Resources: Include → Specific zone → `ryfoje.com`.
+3. Continue to summary → Create Token. Copy it now; it is shown once. It goes
+   in tfvars as `cloudflare_api_token` (step 2). Terraform writes it into the
+   cluster; cert-manager uses it to publish `_acme-challenge.lab.ryfoje.com`
+   TXT records for a minute during each issuance. No A record is ever
+   published; the lab IPs stay in dnsmasq.
+
 ---
 
 ## 2. Workstation setup
@@ -64,6 +76,7 @@ Fill in `terraform/terraform.tfvars`:
 | `lxc_template_url` | from step 1.3 |
 | `talos_schematic_id` | leave the placeholder; preflight generates it |
 | `git_repo_url` | HTTPS URL of your public copy of this repo |
+| `cloudflare_api_token` | from step 1b |
 
 `terraform.tfvars` is gitignored. It holds the API token; never commit it.
 
@@ -185,7 +198,7 @@ Application is doing that on purpose.
 
 When `authentik` is Healthy:
 
-1. Open `http://auth.lab.ryfoje.com/if/flow/initial-setup/`.
+1. Open `https://auth.lab.ryfoje.com/if/flow/initial-setup/`.
 2. Set the `akadmin` password. Use the **same email** you put in
    `pgadmin.yaml`.
 3. Admin interface → Applications → confirm **Lab services** (proxy provider,
@@ -201,7 +214,21 @@ Then:
 ```
 
 Everything should be PASS. `WARN` on "this machine uses the lab resolver"
-means step 5 is not done.
+means step 5 is not done. Section 9 (TLS) says whether Traefik is serving
+the Let's Encrypt wildcard yet; issuance takes about two minutes after the
+`tls` app syncs, and until then every https page shows a certificate warning
+for Traefik's self-signed placeholder. If it stays FAIL:
+
+```powershell
+kubectl -n traefik describe certificate lab-wildcard
+kubectl get challenges -A
+```
+
+A wrong token or zone shows up there as a Cloudflare API error. Fix the
+token in tfvars, `terraform apply`, and cert-manager retries on its own. To
+debug without touching Let's Encrypt's production rate limits, point
+`issuerRef.name` in `cluster/lab/tls/certificate.yaml` at
+`letsencrypt-staging` temporarily.
 
 ---
 
@@ -218,15 +245,15 @@ function Get-K8sSecret($ns, $name, $key) {
 
 | Check | Expect |
 |---|---|
-| `http://argocd.lab.ryfoje.com` | ArgoCD login. Password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'` (base64) |
-| `http://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `terraform output -raw grafana_admin_password` |
-| `http://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
-| `http://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
-| `http://rabbitmq.lab.ryfoje.com` | Authentik page, then RabbitMQ's own login: `Get-K8sSecret messaging rabbitmq-default-user username` / `password` |
-| `http://elasticsearch.lab.ryfoje.com/_cluster/health` | HTTP 401 unauthenticated; `curl.exe -u elastic:<pw>` gives `"status":"green"`. Password: `Get-K8sSecret elastic elasticsearch-es-elastic-user elastic` |
+| `https://argocd.lab.ryfoje.com` | ArgoCD login. Password: `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}'` (base64) |
+| `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `terraform output -raw grafana_admin_password` |
+| `https://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
+| `https://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
+| `https://rabbitmq.lab.ryfoje.com` | Authentik page, then RabbitMQ's own login: `Get-K8sSecret messaging rabbitmq-default-user username` / `password` |
+| `https://elasticsearch.lab.ryfoje.com/_cluster/health` | HTTP 401 unauthenticated; `curl.exe -u elastic:<pw>` gives `"status":"green"`. Password: `Get-K8sSecret elastic elasticsearch-es-elastic-user elastic` |
 | `psql -h 192.168.18.80 -U dev dev` | connects with the dev-db-app password |
 | AMQP `amqp://<user>:<pw>@192.168.18.80:5672/` | connects with the rabbitmq-default-user values |
-| `http://prometheus.lab.ryfoje.com/targets` | `rabbitmq` PodMonitor up, everything green except etcd (off by design) |
+| `https://prometheus.lab.ryfoje.com/targets` | `rabbitmq` PodMonitor up, everything green except etcd (off by design) |
 
 In-cluster names for your own workloads are in the README "Dev platform"
 table.
@@ -274,5 +301,22 @@ Router DNS does not change; the LXC gets the same IP.
   Machine-config changes (sysctls, nameservers) apply live.
 - **New web UI behind Authentik**: one Ingress annotation, see README
   "Authentik in front of things".
+- **A pushed fix never arrives, root app stuck `OutOfSync / Progressing`**:
+  root syncs children in wave order and a running sync waits for each wave
+  to be Healthy before touching the next. If the thing that is unhealthy can
+  only be fixed by a commit, that commit is never applied: the old sync
+  blocks the new one. Check with
+  `kubectl get application root -n argocd -o jsonpath='{.status.operationState.message}'`
+  (it says "waiting for healthy state of ..."). Terminate the stuck
+  operation; automated sync restarts on the current commit within seconds:
+
+  ```powershell
+  kubectl -n argocd patch application root --type=merge -p '{"status":{"operationState":{"phase":"Terminating"}}}'
+  ```
+
+  (No `--subresource=status`: the Application CRD has none, and kubectl
+  answers "not found" instead of saying so.)
+
+  Seen once with node-exporter Pending on a host-port clash with Traefik.
 - **New Grafana dashboard**: JSON into `cluster/lab/observability/dashboards/`
   plus one entry in its `kustomization.yaml`.

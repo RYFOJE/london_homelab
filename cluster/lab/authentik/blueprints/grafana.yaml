@@ -37,10 +37,10 @@ entries:
       client_type: confidential
       client_id: grafana
       client_secret: !Env GRAFANA_OIDC_CLIENT_SECRET
-      # http until a ClusterIssuer exists; flip with the Grafana root_url.
+      # Must match Grafana's root_url scheme exactly (strict matching).
       redirect_uris:
         - matching_mode: strict
-          url: http://grafana.lab.ryfoje.com/login/generic_oauth
+          url: https://grafana.lab.ryfoje.com/login/generic_oauth
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
       sub_mode: hashed_user_id
       property_mappings:
@@ -54,5 +54,5 @@ entries:
     attrs:
       name: Grafana
       provider: !KeyOf grafana-provider
-      meta_launch_url: http://grafana.lab.ryfoje.com
+      meta_launch_url: https://grafana.lab.ryfoje.com
       meta_description: Metrics, logs and traces

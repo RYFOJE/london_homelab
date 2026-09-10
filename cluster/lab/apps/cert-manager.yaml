@@ -22,7 +22,6 @@ spec:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]
 ---
-# TODO: add a ClusterIssuer once the Cloudflare token secret exists.
-# DNS-01 writes a TXT record to your PUBLIC zone and deletes it. The A
-# record stays private in dnsmasq -- that is how you get real Let's Encrypt
-# certs without publishing an internal IP.
+# ClusterIssuers and the lab wildcard Certificate live in cluster/lab/tls
+# (Application "tls", wave 1). The Cloudflare token they need is written by
+# Terraform into this namespace (secrets.tf).

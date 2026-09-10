@@ -71,6 +71,7 @@ resource "helm_release" "root_app" {
     kubernetes_namespace_v1.observability,
     kubernetes_namespace_v1.elastic,
     kubernetes_namespace_v1.database,
+    kubernetes_namespace_v1.cert_manager,
   ]
 
   name       = "root"

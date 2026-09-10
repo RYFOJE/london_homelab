@@ -195,3 +195,31 @@ resource "kubernetes_secret_v1" "pgadmin_admin" {
     "password" = random_password.pgadmin_admin.result
   }
 }
+
+# Cloudflare token for cert-manager's DNS-01 solver. The only credential in
+# this file that Terraform did not generate: it comes from terraform.tfvars
+# and is copied into the cluster once. The ClusterIssuer in cluster/lab/tls
+# points at this Secret by name.
+
+resource "kubernetes_namespace_v1" "cert_manager" {
+  depends_on = [terraform_data.wait_for_apiserver]
+
+  metadata {
+    name = "cert-manager"
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "kubernetes_secret_v1" "cloudflare_api_token" {
+  metadata {
+    name      = "cloudflare-api-token"
+    namespace = kubernetes_namespace_v1.cert_manager.metadata[0].name
+  }
+
+  data = {
+    "api-token" = var.cloudflare_api_token
+  }
+}

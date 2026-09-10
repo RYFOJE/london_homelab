@@ -1,0 +1,25 @@
+# ClusterIssuers + the lab wildcard Certificate. Wave 1: cert-manager (-5)
+# owns the CRDs, and the Certificate lands in the traefik namespace, which
+# Traefik (0) creates. Terraform writes the Cloudflare token Secret that the
+# issuers reference (secrets.tf).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tls
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/tls
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

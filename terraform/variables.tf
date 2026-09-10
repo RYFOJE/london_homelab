@@ -50,3 +50,9 @@ variable "git_repo_url" {
   type        = string
   description = "HTTPS URL of this repo. ArgoCD reads cluster/lab/apps from it. Keep it public, or you need a repo credential in the bootstrap path."
 }
+
+variable "cloudflare_api_token" {
+  type        = string
+  sensitive   = true
+  description = "Cloudflare API token for cert-manager's DNS-01 solver. Permissions: Zone/DNS/Edit + Zone/Zone/Read, scoped to the zone the lab domain sits under. Lands in Secret cert-manager/cloudflare-api-token."
+}

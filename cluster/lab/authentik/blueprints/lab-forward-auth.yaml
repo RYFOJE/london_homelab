@@ -23,7 +23,7 @@ entries:
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       mode: forward_domain
       # In domain mode this is the authentik URL itself, not an app URL.
-      external_host: http://auth.lab.ryfoje.com
+      external_host: https://auth.lab.ryfoje.com
       cookie_domain: lab.ryfoje.com
       access_token_validity: hours=24
 
@@ -49,5 +49,4 @@ entries:
       config:
         # Where browsers are sent to log in. The outpost talks to the API
         # in-process, so this only has to resolve from the LAN.
-        authentik_host: http://auth.lab.ryfoje.com
-        authentik_host_insecure: true
+        authentik_host: https://auth.lab.ryfoje.com
