@@ -1,0 +1,23 @@
+# Talos Image Factory schematic.
+#
+# The schematic ID in terraform.tfvars is a SHA256 of this file's canonical
+# form. It is deterministic -- the same YAML always yields the same ID -- so
+# this file is the record of how that hash was derived. Regenerate with:
+#
+#   cd terraform
+#   $body = Get-Content files/schematic.yaml -Raw
+#   Invoke-RestMethod -Uri https://factory.talos.dev/schematics `
+#     -Method Post -ContentType application/yaml -Body $body
+#
+# Response: { id = "<64 hex chars>" } -> paste into talos_schematic_id.
+#
+# Changing anything here produces a NEW id, which means a new image and a
+# node rebuild. Not an in-place upgrade.
+
+customization:
+  systemExtensions:
+    officialExtensions:
+      # Required: talos.tf sets agent { enabled = true }, and bpg blocks
+      # waiting for the guest agent. Without this the apply hangs until it
+      # times out, with an error that points at the VM rather than here.
+      - siderolabs/qemu-guest-agent

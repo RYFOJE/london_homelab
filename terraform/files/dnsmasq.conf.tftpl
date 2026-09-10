@@ -1,0 +1,17 @@
+# Managed by Terraform. Edits made here are overwritten on the next apply.
+
+# Wildcard: matches ${domain} AND every subdomain of it.
+# One line covers every service you will ever add.
+address=/${domain}/${target}
+
+# Upstream forwarders
+%{ for s in upstream ~}
+server=${s}
+%{ endfor ~}
+
+# Never read /etc/resolv.conf -- prevents a self-reference loop
+no-resolv
+
+domain-needed
+bogus-priv
+cache-size=1000

@@ -1,0 +1,14 @@
+pve_endpoint  = "https://192.168.18.5:8006/"
+pve_api_token = "root@pam!tf=00000000-0000-0000-0000-000000000000"
+
+# Public key injected into the LXC. Must match the key loaded in your
+# SSH agent -- ssh-add -l to check which one that is.
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+
+# From `pveam available --section system` on the PVE host.
+lxc_template_url = "http://download.proxmox.com/images/system/debian-13-standard_13.6-1_amd64.tar.zst"
+
+# POST files/schematic.yaml to https://factory.talos.dev/schematics
+talos_schematic_id = "REPLACE_WITH_FACTORY_SCHEMATIC_ID"
+
+git_repo_url = "https://github.com/ryfoje2/london_homelab.git"

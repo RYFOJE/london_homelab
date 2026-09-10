@@ -1,0 +1,29 @@
+# Sync wave -10: storage must exist before anything asks for a PVC.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: local-path-provisioner
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rancher/local-path-provisioner
+    targetRevision: v0.0.30 # check for a newer tag
+    path: deploy/chart/local-path-provisioner
+    helm:
+      values: |
+        storageClass:
+          defaultClass: true
+        # Must match machine.kubelet.extraMounts in talos.tf.
+        # The chart default (/opt/local-path-provisioner) is not writable on Talos.
+        nodePathMap:
+          - node: DEFAULT_PATH_FOR_NON_LISTED_NODES
+            paths: ["/var/local-path-provisioner"]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: local-path-storage
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]

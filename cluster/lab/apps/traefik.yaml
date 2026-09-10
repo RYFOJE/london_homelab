@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: 33.2.1 # check for a newer release
+    helm:
+      values: |
+        # Single node: hostNetwork makes the node IP the ingress IP,
+        # which is exactly what dnsmasq points at. No MetalLB needed.
+        hostNetwork: true
+        service:
+          enabled: false
+        ports:
+          web:
+            port: 80
+            redirectTo:
+              port: websecure
+          websecure:
+            port: 443
+        securityContext:
+          capabilities:
+            add: ["NET_BIND_SERVICE"]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]

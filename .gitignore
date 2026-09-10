@@ -1,0 +1,14 @@
+# Terraform state contains Talos machine secrets -- never commit it
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.tfstate.lock.info
+
+# Real values
+*.tfvars
+!*.tfvars.example
+
+# Cluster credentials
+kubeconfig
+talosconfig
+crash.log

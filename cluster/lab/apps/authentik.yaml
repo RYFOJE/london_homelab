@@ -1,0 +1,39 @@
+# Sync wave 10: needs storage, ingress and certs already up.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  project: default
+  source:
+    repoURL: https://charts.goauthentik.io
+    chart: authentik
+    targetRevision: 2024.12.3 # check for a newer release
+    helm:
+      values: |
+        server:
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts:
+              - auth.lab.example.com
+        postgresql:
+          enabled: true
+        redis:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
+---
+# Postgres sits on local-path, so a rebuild wipes your users.
+# Define users, groups, applications and OIDC providers as Authentik
+# BLUEPRINTS committed to this repo. Rebuild then reprovisions identity
+# from source, and it is the only clickops-free way to configure it.
+#
+# Keep the ArgoCD local `admin` account enabled as break-glass, forever.
