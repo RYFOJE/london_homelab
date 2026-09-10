@@ -47,11 +47,14 @@ spec:
           ingress:
             enabled: true
             ingressClassName: traefik
+            # This chart takes flat lists -- hosts are plain strings and paths
+            # are a sibling list, NOT the nginx-style nested
+            # hosts[].paths[].path objects most charts use.
             hosts:
-              - host: auth.lab.ryfoje.com
-                paths:
-                  - path: /
-                    pathType: Prefix
+              - auth.lab.ryfoje.com
+            paths:
+              - /
+            pathType: Prefix
   destination:
     server: https://kubernetes.default.svc
     namespace: authentik
