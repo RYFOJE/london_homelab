@@ -28,8 +28,9 @@ spec:
       # the 40%-of-host default, which on a hostNetwork-free pod reads the
       # cgroup limit anyway but errs conservative.
       vm_memory_high_watermark.relative = 0.6
-      # Management UI behind a reverse proxy.
-      management.path_prefix = /
+      # Do NOT set management.path_prefix for a root-mounted UI: "/" makes
+      # RabbitMQ answer / with a 301 to //, which browsers reject as a
+      # corrupted redirect. The default (empty) is correct behind Traefik.
     additionalPlugins:
       - rabbitmq_shovel
       - rabbitmq_shovel_management
