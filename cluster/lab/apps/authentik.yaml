@@ -20,10 +20,22 @@ spec:
             ingressClassName: traefik
             hosts:
               - auth.lab.example.com
+        # Bitnami removed versioned tags from docker.io/bitnami/* -- only
+        # "latest" for a reduced catalogue remains free, and everything
+        # pinned now 404s. The old tags live on in bitnamilegacy/*.
+        #
+        # STOPGAP: bitnamilegacy is frozen and gets no security updates.
+        # The real fix is upgrading to the current authentik chart (2026.8.x)
+        # and running Postgres via CloudNativePG instead -- that chart also
+        # dropped the bundled Redis, so it is a values rewrite, not a bump.
         postgresql:
           enabled: true
+          image:
+            repository: bitnamilegacy/postgresql
         redis:
           enabled: true
+          image:
+            repository: bitnamilegacy/redis
   destination:
     server: https://kubernetes.default.svc
     namespace: authentik
