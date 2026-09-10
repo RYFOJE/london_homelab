@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+
+# Adding a dashboard: drop the JSON here, add one entry below, commit.
+# Grafana's sidecar watches every namespace for ConfigMaps carrying
+# grafana_dashboard=1 and loads them within seconds -- no restart, no
+# clickops, and the dashboard diffs in review. grafana_folder picks the
+# Grafana folder.
+configMapGenerator:
+  - name: grafana-dashboard-cluster-logs
+    files: [cluster-logs-explorer.json]
+    options:
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: Lab }
+
+  - name: grafana-dashboard-dotnet-service
+    files: [dotnet-service-otel.json]
+    options:
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: Applications }
+
+  - name: grafana-dashboard-alloy-health
+    files: [alloy-pipeline-health.json]
+    options:
+      labels: { grafana_dashboard: "1" }
+      annotations: { grafana_folder: Lab }
+
+generatorOptions:
+  # The sidecar reloads on content change anyway; hash suffixes just leave
+  # orphaned ConfigMaps behind on every edit.
+  disableNameSuffixHash: true

@@ -1,0 +1,23 @@
+# Plain manifests via kustomize, not a chart -- the root app only recurses
+# apps/, so the dashboard ConfigMaps need their own Application pointing at
+# observability/dashboards/. Same pattern as authentik-db -> db/.
+# Wave 30: Grafana's sidecar (15) must exist to pick them up.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability-dashboards
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/observability/dashboards
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]

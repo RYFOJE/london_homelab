@@ -1,0 +1,155 @@
+# Wave 20: after kube-prometheus-stack (15) -- this chart ships a
+# ServiceMonitor and a PrometheusRule and needs the CRDs to exist.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: loki
+    targetRevision: 18.12.1
+    helm:
+      values: |
+        # Monolithic == the old "SingleBinary". One pod, filesystem storage.
+        # SimpleScalable and Distributed both REQUIRE object storage, so this
+        # is the only mode that works without MinIO/S3.
+        deploymentMode: Monolithic
+
+        loki:
+          # Single tenant. Turning this on means every read/write needs an
+          # X-Scope-OrgID header — pointless here, and it breaks Grafana's
+          # default datasource config.
+          auth_enabled: false
+
+          commonConfig:
+            path_prefix: /var/loki
+            # Chart default is 3. On one node that means every write fails.
+            replication_factor: 1
+
+          storage:
+            type: filesystem
+            filesystem:
+              chunks_directory: /var/loki/chunks
+              rules_directory: /var/loki/rules
+
+          # A real install needs an explicit schema. tsdb + v13 is current.
+          # Never edit a `from:` date that's already in the past — add a new
+          # entry with a future date instead, or you orphan existing chunks.
+          schemaConfig:
+            configs:
+              - from: "2024-04-01"
+                store: tsdb
+                object_store: filesystem
+                schema: v13
+                index:
+                  prefix: loki_index_
+                  period: 24h
+
+          limits_config:
+            retention_period: 720h        # 30d
+            max_cache_freshness_per_query: 10m
+            reject_old_samples: true
+            reject_old_samples_max_age: 168h
+            split_queries_by_interval: 15m
+            query_timeout: 300s
+            # Powers the log-volume panels in the logs explorer dashboard.
+            volume_enabled: true
+            # Structured metadata is how OTLP attributes survive ingestion
+            # without becoming high-cardinality labels. Required for the
+            # trace_id -> Tempo link to work on OTLP logs.
+            allow_structured_metadata: true
+            # Headroom for a burst of app logs; the defaults are conservative.
+            ingestion_rate_mb: 16
+            ingestion_burst_size_mb: 32
+            max_query_series: 5000
+
+          compactor:
+            working_directory: /var/loki/compactor
+            # Retention is a no-op unless the compactor is told to enforce it.
+            retention_enabled: true
+            delete_request_store: filesystem
+            compaction_interval: 10m
+            retention_delete_delay: 2h
+
+          # Native OTLP ingestion (/otlp/v1/logs). Alloy writes app logs here.
+          # service.name lands as the `service_name` label; everything else
+          # goes to structured metadata.
+          ingester:
+            chunk_encoding: snappy
+
+          server:
+            http_listen_port: 3100
+            grpc_listen_port: 9095
+            # OTLP payloads can be chunky.
+            grpc_server_max_recv_msg_size: 16777216
+            grpc_server_max_send_msg_size: 16777216
+
+        singleBinary:
+          # Chart default is 0 replicas, which silently deploys nothing.
+          replicas: 1
+          persistence:
+            enabled: true
+            storageClass: local-path
+            size: 30Gi
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+
+        # Zero out every other topology so the chart doesn't render them.
+        write:
+          replicas: 0
+        read:
+          replicas: 0
+        backend:
+          replicas: 0
+
+        # nginx in front of a single Loki pod buys nothing here.
+        gateway:
+          enabled: false
+
+        # memcached sidecars: ~9Gi of memory requests by default, for a lab
+        # that queries a few GB of logs. Off.
+        chunksCache:
+          enabled: false
+        resultsCache:
+          enabled: false
+
+        # No object storage.
+        minio:
+          enabled: false
+
+        # Synthetic log stream + helm test. Useful signal, tiny cost — it's
+        # how you find out ingestion broke before you go looking for logs.
+        lokiCanary:
+          enabled: true
+        test:
+          enabled: false
+
+        monitoring:
+          serviceMonitor:
+            enabled: true
+          # Loki's own mixin dashboards, plus the recording rules some of
+          # them need.
+          dashboards:
+            enabled: true
+          rules:
+            enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    # Automated sync does NOT re-attempt a failed sync of the same revision.
+    # Depends on CRDs/Secrets from earlier waves; retry instead of sitting red.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

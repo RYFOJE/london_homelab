@@ -106,7 +106,9 @@ if (-not $SkipProxmox) {
             $r = Invoke-RestMethod -Uri (($endpoint.TrimEnd('/')) + '/api2/json/cluster/resources?type=vm') `
                 -Headers @{ Authorization = "PVEAPIToken=$token" } `
                 -SkipCertificateCheck -SkipHeaderValidation -TimeoutSec 15
-            foreach ($id in 110, 120) {
+            $vmids = [regex]::Matches((Get-Content $locals -Raw), '(?m)vmid\s*=\s*(\d+)') |
+            ForEach-Object { [int]$_.Groups[1].Value }
+            foreach ($id in $vmids) {
                 $g = $r.data | Where-Object { [int]$_.vmid -eq $id }
                 if (-not $g) { Report "guest $id exists" 'FAIL' 'not found' }
                 elseif ($g.status -eq 'running') { Report "guest $id ($($g.name))" 'PASS' 'running' }

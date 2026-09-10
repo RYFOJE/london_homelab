@@ -10,7 +10,7 @@ spec:
   source:
     repoURL: https://traefik.github.io/charts
     chart: traefik
-    targetRevision: 33.2.1 # check for a newer release
+    targetRevision: 33.2.1  # check for a newer release
     helm:
       values: |
         # Single node: hostNetwork makes the node IP the ingress IP,

@@ -1,0 +1,331 @@
+# Wave 15: after Traefik (0) so the Ingresses have somewhere to land, and
+# after Authentik (10) so Grafana's OIDC can be switched on without a
+# re-order later. Everything that ships a ServiceMonitor must come AFTER
+# this app -- it owns the CRDs.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "15"
+spec:
+  project: default
+  source:
+    repoURL: https://prometheus-community.github.io/helm-charts
+    chart: kube-prometheus-stack
+    targetRevision: 90.0.0
+    helm:
+      values: |
+        crds:
+          enabled: true
+
+        # Talos control-plane targets. Only reachable because talos.tf sets
+        # bind-address 0.0.0.0 on all three; without that patch these sit
+        # permanently red with a connection-refused.
+        kubeControllerManager:
+          enabled: true
+          endpoints: [192.168.18.80]
+        kubeScheduler:
+          enabled: true
+          endpoints: [192.168.18.80]
+        kubeProxy:
+          enabled: true
+          endpoints: [192.168.18.80]
+
+        # etcd needs client certs pulled out of /system/secrets/etcd into a
+        # Secret that Prometheus mounts. Off until that exists; turn on
+        # together with cluster.etcd.extraArgs.listen-metrics-urls in talos.tf.
+        kubeEtcd:
+          enabled: false
+
+        # Single node: control-plane HA alerts are permanent noise.
+        defaultRules:
+          create: true
+          rules:
+            etcd: false
+          disabled:
+            KubeControllerManagerDown: true
+            KubeSchedulerDown: true
+
+        prometheus:
+          prometheusSpec:
+            retention: 15d
+            retentionSize: 18GB
+            scrapeInterval: 30s
+            evaluationInterval: 30s
+
+            # Alloy remote-writes OTLP app metrics in here; Tempo's
+            # metrics-generator writes span metrics the same way.
+            enableRemoteWriteReceiver: true
+            # Exemplars are what make the metric -> trace jump work.
+            enableFeatures: [exemplar-storage, native-histograms]
+            exemplars:
+              maxSize: 100000
+
+            # Pick up ServiceMonitors/PodMonitors/Rules from EVERY namespace,
+            # not only ones labelled with this release. This is the single
+            # knob that makes the stack expandable: a new app ships its own
+            # ServiceMonitor and is scraped with no change here.
+            serviceMonitorSelectorNilUsesHelmValues: false
+            podMonitorSelectorNilUsesHelmValues: false
+            ruleSelectorNilUsesHelmValues: false
+            probeSelectorNilUsesHelmValues: false
+            scrapeConfigSelectorNilUsesHelmValues: false
+
+            externalLabels:
+              cluster: lab
+
+            storageSpec:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 20Gi
+
+            resources:
+              requests: { cpu: 200m, memory: 1Gi }
+              limits: { memory: 3Gi }
+
+          # Break-glass: never behind SSO. Read-only and LAN-only, and a
+          # broken Authentik must not hide the metrics that say why.
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts: [prometheus.lab.ryfoje.com]
+            paths: ["/"]
+            pathType: Prefix
+            # tls stays off until a ClusterIssuer exists (see cert-manager.yaml).
+
+        alertmanager:
+          enabled: true
+          alertmanagerSpec:
+            retention: 120h
+            storage:
+              volumeClaimTemplate:
+                spec:
+                  storageClassName: local-path
+                  accessModes: [ReadWriteOnce]
+                  resources:
+                    requests:
+                      storage: 2Gi
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts: [alertmanager.lab.ryfoje.com]
+            paths: ["/"]
+            pathType: Prefix
+
+        # hostPath /proc + /sys + hostNetwork: needs the PSA "privileged"
+        # label on the namespace (managedNamespaceMetadata below).
+        prometheus-node-exporter:
+          hostRootFsMount:
+            enabled: true
+
+        kube-state-metrics:
+          metricLabelsAllowlist:
+            - pods=[*]
+            - deployments=[*]
+            - namespaces=[*]
+
+        grafana:
+          enabled: true
+          defaultDashboardsTimezone: browser
+
+          # Local admin written by Terraform (secrets.tf), same pattern as
+          # Authentik's signing key. Stays enabled forever as break-glass.
+          admin:
+            existingSecret: grafana-admin
+            userKey: admin-user
+            passwordKey: admin-password
+
+          persistence:
+            enabled: true
+            type: pvc
+            storageClassName: local-path
+            size: 5Gi
+            accessModes: [ReadWriteOnce]
+
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              labelValue: "1"
+              searchNamespace: ALL
+              folderAnnotation: grafana_folder
+              provider:
+                foldersFromFilesStructure: true
+            datasources:
+              enabled: true
+              searchNamespace: ALL
+              # Metric -> trace: Prometheus exemplars carry trace_id.
+              exemplarTraceIdDestinations:
+                datasourceUid: tempo
+                traceIdLabelName: trace_id
+                urlDisplayLabel: View trace
+
+          # `$$` is Grafana provisioning's escape for a literal `$` -- it
+          # otherwise tries to expand ${...} as an environment variable.
+          additionalDataSources:
+            - name: Loki
+              type: loki
+              uid: loki
+              access: proxy
+              url: http://loki.observability.svc.cluster.local:3100
+              jsonData:
+                timeout: 60
+                maxLines: 1000
+                # log -> trace
+                derivedFields:
+                  - name: TraceID
+                    matcherType: label
+                    matcherRegex: trace_id
+                    url: "$${__value.raw}"
+                    datasourceUid: tempo
+                  - name: TraceIDFromText
+                    matcherType: regex
+                    matcherRegex: "[Tt]race[_-]?[Ii][Dd][\"=:\\s]+([a-f0-9]{32})"
+                    url: "$${__value.raw}"
+                    datasourceUid: tempo
+
+            - name: Tempo
+              type: tempo
+              uid: tempo
+              access: proxy
+              url: http://tempo.observability.svc.cluster.local:3200
+              jsonData:
+                # trace -> log
+                tracesToLogsV2:
+                  datasourceUid: loki
+                  spanStartTimeShift: "-5m"
+                  spanEndTimeShift: "5m"
+                  filterByTraceID: true
+                  filterBySpanID: false
+                  tags:
+                    - key: service.name
+                      value: service_name
+                # trace -> metric (RED series from Tempo's metrics-generator)
+                tracesToMetrics:
+                  datasourceUid: prometheus
+                  spanStartTimeShift: "-5m"
+                  spanEndTimeShift: "5m"
+                  tags:
+                    - key: service.name
+                      value: service
+                  queries:
+                    - name: Request rate
+                      query: 'sum(rate(traces_spanmetrics_calls_total{$$__tags}[$$__rate_interval]))'
+                    - name: Error rate
+                      query: >-
+                        sum(rate(traces_spanmetrics_calls_total{$$__tags,
+                        status_code="STATUS_CODE_ERROR"}[$$__rate_interval]))
+                serviceMap:
+                  datasourceUid: prometheus
+                nodeGraph:
+                  enabled: true
+                streamingEnabled:
+                  search: true
+
+          grafana.ini:
+            server:
+              domain: grafana.lab.ryfoje.com
+              # http until a ClusterIssuer exists; flip with the ingress.
+              root_url: http://grafana.lab.ryfoje.com
+            users:
+              auto_assign_org: true
+              auto_assign_org_role: Viewer
+            auth:
+              disable_login_form: false
+              oauth_auto_login: false
+            feature_toggles:
+              enable: traceqlEditor traceToProfiles
+            unified_alerting:
+              enabled: true
+            alerting:
+              enabled: false
+            # ---- SSO: enable once the Authentik provider blueprint exists ----
+            # Needs a Secret `grafana-oidc` with GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+            # and GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET, plus `envFromSecret:
+            # grafana-oidc` at the grafana: level. Redirect URI in Authentik:
+            #   http://grafana.lab.ryfoje.com/login/generic_oauth
+            # auth.generic_oauth:
+            #   enabled: true
+            #   name: Authentik
+            #   allow_sign_up: true
+            #   scopes: "openid profile email"
+            #   auth_url: http://auth.lab.ryfoje.com/application/o/authorize/
+            #   token_url: http://auth.lab.ryfoje.com/application/o/token/
+            #   api_url: http://auth.lab.ryfoje.com/application/o/userinfo/
+            #   role_attribute_path: >-
+            #     contains(groups[*], 'grafana-admins') && 'Admin' ||
+            #     contains(groups[*], 'grafana-editors') && 'Editor' || 'Viewer'
+
+          ingress:
+            enabled: true
+            ingressClassName: traefik
+            hosts: [grafana.lab.ryfoje.com]
+            path: /
+            pathType: Prefix
+
+          # Community dashboards pulled from grafana.com by the init container.
+          # Grafana needs egress for these; to remove the dependency, download
+          # the JSON into cluster/lab/observability/dashboards/ instead.
+          dashboardProviders:
+            dashboardproviders.yaml:
+              apiVersion: 1
+              providers:
+                - name: community
+                  orgId: 1
+                  folder: Community
+                  type: file
+                  disableDeletion: false
+                  editable: true
+                  options:
+                    path: /var/lib/grafana/dashboards/community
+          dashboards:
+            community:
+              node-exporter-full:
+                gnetId: 1860
+                revision: 45
+                datasource: Prometheus
+              traefik:
+                gnetId: 17346
+                revision: 9
+                datasource: Prometheus
+              argocd:
+                gnetId: 14584
+                revision: 1
+                datasource: Prometheus
+              cert-manager:
+                gnetId: 20340
+                revision: 1
+                datasource: Prometheus
+              loki-logs-app:
+                gnetId: 13639
+                revision: 2
+                datasource: Loki
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions:
+      - CreateNamespace=true
+      # The CRDs blow past the 262144-byte last-applied-configuration
+      # annotation limit. Without SSA: "metadata.annotations: Too long".
+      - ServerSideApply=true
+    # Talos enforces PodSecurity "baseline" on every namespace it does not
+    # own. node-exporter (hostPath /proc, /sys, hostNetwork) and Alloy
+    # (hostPath /var/log) are both rejected under baseline -- silently, no
+    # pod ever created. secrets.tf sets the same labels so ordering never
+    # matters.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+        pod-security.kubernetes.io/audit: privileged
+        pod-security.kubernetes.io/warn: privileged
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

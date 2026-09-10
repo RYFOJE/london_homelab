@@ -1,0 +1,7 @@
+extends: default
+rules:
+  line-length: { max: 120 }
+  document-start: disable
+  comments-indentation: disable
+  braces: { max-spaces-inside: 1 }
+  brackets: { max-spaces-inside: 1 }

@@ -20,3 +20,8 @@ spec:
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]
+    # Automated sync does NOT re-attempt a failed sync of the same revision.
+    # Depends on CRDs/Secrets from earlier waves; retry instead of sitting red.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

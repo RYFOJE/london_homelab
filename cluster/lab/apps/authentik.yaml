@@ -29,7 +29,8 @@ spec:
 
         # Credentials arrive as env vars from Secrets -- never as values.
         # AUTHENTIK_POSTGRESQL__PASSWORD comes from the Secret CNPG generates.
-        # AUTHENTIK_SECRET_KEY comes from External Secrets.
+        # AUTHENTIK_SECRET_KEY comes from the Secret Terraform writes in
+        # secrets.tf (random_password kept in tfstate, so it survives rebuilds).
         global:
           env:
             - name: AUTHENTIK_POSTGRESQL__PASSWORD
@@ -61,3 +62,8 @@ spec:
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]
+    # Automated sync does NOT re-attempt a failed sync of the same revision.
+    # Depends on CRDs/Secrets from earlier waves; retry instead of sitting red.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

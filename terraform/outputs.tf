@@ -24,3 +24,10 @@ output "talosconfig" {
   value     = data.talos_client_configuration.this.talos_config
   sensitive = true
 }
+
+# Grafana break-glass login (user: admin). Authentik SSO comes later; this
+# never goes away.
+output "grafana_admin_password" {
+  value     = random_password.grafana_admin.result
+  sensitive = true
+}

@@ -1,0 +1,111 @@
+# Wave 20: alongside Loki. Ships a ServiceMonitor, so after the CRDs (15).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tempo
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana-community.github.io/helm-charts
+    chart: tempo
+    targetRevision: 2.3.0
+    helm:
+      values: |
+        replicas: 1
+
+        tempo:
+          # 3 days. Traces are the cheapest thing to throw away and the most
+          # expensive thing to store.
+          retention: 72h
+          reportingEnabled: false
+
+          storage:
+            trace:
+              backend: local
+              local:
+                path: /var/tempo/traces
+              wal:
+                path: /var/tempo/wal
+
+          # Alloy is the only thing that talks to Tempo. Jaeger/Zipkin
+          # receivers stay off — if you ever need them, add them to Alloy's
+          # OTLP gateway instead of opening another door here.
+          receivers:
+            otlp:
+              protocols:
+                grpc:
+                  endpoint: "0.0.0.0:4317"
+                http:
+                  endpoint: "0.0.0.0:4318"
+
+          # ---------------------------------------------------------------
+          # Metrics generator: turns spans into RED metrics and a service
+          # graph, remote-written into Prometheus. This is what makes the
+          # "Service Graph" tab and tracesToMetrics links in the Tempo
+          # datasource actually work — and it means your .NET services get
+          # request rate / error rate / latency for free the moment they
+          # start emitting traces, with zero metric instrumentation.
+          # ---------------------------------------------------------------
+          metricsGenerator:
+            enabled: true
+            remoteWriteUrl: http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write
+            registry:
+              collection_interval: 30s
+              external_labels:
+                source: tempo
+                cluster: lab
+            processor:
+              span_metrics:
+                enable_target_info: true
+              service_graphs:
+                wait: 10s
+                max_items: 10000
+              local_blocks:
+                flush_to_storage: true
+            storage:
+              path: /var/tempo/generator/wal
+            traces_storage:
+              path: /var/tempo/generator/traces
+
+          overrides:
+            defaults:
+              metrics_generator:
+                processors:
+                  - service-graphs
+                  - span-metrics
+                  - local-blocks
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+
+        persistence:
+          enabled: true
+          storageClassName: local-path
+          size: 10Gi
+          accessModes:
+            - ReadWriteOnce
+
+        serviceMonitor:
+          enabled: true
+
+        # Jaeger UI container. Grafana's trace view is better; skip it.
+        tempoQuery:
+          enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    # Automated sync does NOT re-attempt a failed sync of the same revision.
+    # Depends on CRDs/Secrets from earlier waves; retry instead of sitting red.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

@@ -7,7 +7,7 @@ metadata:
   name: authentik-db
   namespace: authentik
 spec:
-  instances: 1 # single node; more would just co-locate and buy nothing
+  instances: 1  # single node; more would just co-locate and buy nothing
 
   storage:
     size: 10Gi

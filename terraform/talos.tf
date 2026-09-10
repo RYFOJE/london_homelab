@@ -91,6 +91,13 @@ data "talos_machine_configuration" "this" {
       cluster = {
         # Single node: without this, nothing schedules.
         allowSchedulingOnControlPlanes = true
+
+        # Talos binds these to 127.0.0.1. Prometheus can never scrape them
+        # unless they listen on the pod network. Cheap now; miserable to
+        # diagnose later when kube-prometheus-stack's ServiceMonitors go red.
+        controllerManager = { extraArgs = { "bind-address" = "0.0.0.0" } }
+        scheduler         = { extraArgs = { "bind-address" = "0.0.0.0" } }
+        proxy             = { extraArgs = { "metrics-bind-address" = "0.0.0.0" } }
       }
       machine = {
         install = {

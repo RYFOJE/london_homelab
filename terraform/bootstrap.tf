@@ -13,16 +13,34 @@ resource "helm_release" "argocd" {
   create_namespace = true
   repository       = "https://argoproj.github.io/argo-helm"
   chart            = "argo-cd"
-  # Pin after your first successful install:
-  #   helm repo add argo https://argoproj.github.io/argo-helm
-  #   helm search repo argo/argo-cd --versions
-  # version = "x.y.z"
+  # Pinned to what the first successful install resolved (see .helm/cache).
+  # Bump deliberately: helm search repo argo/argo-cd --versions
+  version = "10.8.4"
 
   values = [yamlencode({
     configs = {
       params = {
         # Traefik terminates TLS; stop ArgoCD doing it too and redirect-looping.
         "server.insecure" = true
+      }
+      cm = {
+        # ArgoCD >= 1.8 ships NO health check for Application resources, so
+        # in an app-of-apps the root app considers every child "Healthy" the
+        # instant it exists and sync waves in cluster/lab/apps order nothing.
+        # This restores the check so wave N+1 waits for wave N to be Healthy.
+        # https://argo-cd.readthedocs.io/en/stable/operator-manual/health/#argocd-app
+        "resource.customizations.health.argoproj.io_Application" = <<-LUA
+          hs = {}
+          hs.status = "Progressing"
+          hs.message = ""
+          if obj.status ~= nil and obj.status.health ~= nil then
+            hs.status = obj.status.health.status
+            if obj.status.health.message ~= nil then
+              hs.message = obj.status.health.message
+            end
+          end
+          return hs
+        LUA
       }
     }
     server = {
@@ -47,7 +65,7 @@ resource "helm_release" "root_app" {
   namespace  = "argocd"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argocd-apps"
-  # version = "x.y.z"
+  version    = "2.0.5"
 
   values = [yamlencode({
     # Map keyed by name. Older chart versions took a list here.

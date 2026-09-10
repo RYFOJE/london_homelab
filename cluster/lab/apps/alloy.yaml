@@ -1,0 +1,331 @@
+# Wave 25: after Loki and Tempo (20) exist, or Alloy spends its first
+# minutes retrying writes into nothing.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "25"
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: alloy
+    targetRevision: 1.12.1
+    helm:
+      values: |
+        alloy:
+          # /var/log/pods lives on the host. Talos keeps real files there
+          # (not a Docker shim), so a plain /var/log mount is enough.
+          mounts:
+            varlog: true
+            dockercontainers: false
+
+          # Alloy must read root-owned files under /var/log/pods.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+
+          extraEnv:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          # The OTLP front door. Apps point OTEL_EXPORTER_OTLP_ENDPOINT at
+          # http://alloy.observability.svc.cluster.local:4318 and never learn
+          # that Loki, Tempo and Prometheus exist.
+          extraPorts:
+            - name: otlp-grpc
+              port: 4317
+              targetPort: 4317
+              protocol: TCP
+              appProtocol: h2c
+            - name: otlp-http
+              port: 4318
+              targetPort: 4318
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+
+          configMap:
+            create: true
+            content: |-
+              // =========================================================
+              //  Grafana Alloy — single telemetry agent for the lab
+              //
+              //  Three jobs:
+              //    1. tail every container's stdout       -> Loki
+              //    2. watch Kubernetes events             -> Loki
+              //    3. terminate OTLP from applications    -> Tempo / Loki / Prometheus
+              //
+              //  Metric SCRAPING is deliberately not here — the Prometheus
+              //  Operator owns that, driven by ServiceMonitor CRDs. Alloy
+              //  only remote-writes the metrics that arrive over OTLP.
+              // =========================================================
+
+              logging {
+                level  = "info"
+                format = "logfmt"
+              }
+
+              // ---------------------------------------------------------
+              //  1. Container logs
+              // ---------------------------------------------------------
+
+              discovery.kubernetes "pods" {
+                role = "pod"
+
+                // DaemonSet: only tail pods scheduled on THIS node. Pointless
+                // on one node, correct the day there are three.
+                selectors {
+                  role  = "pod"
+                  field = "spec.nodeName=" + sys.env("NODE_NAME")
+                }
+              }
+
+              discovery.relabel "pod_logs" {
+                targets = discovery.kubernetes.pods.targets
+
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace"]
+                  target_label  = "namespace"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_name"]
+                  target_label  = "pod"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_container_name"]
+                  target_label  = "container"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+                  target_label  = "app"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_node_name"]
+                  target_label  = "node"
+                }
+                rule {
+                  source_labels = ["__meta_kubernetes_namespace", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  target_label  = "job"
+                }
+
+                // Container log path on the host:
+                //   /var/log/pods/<namespace>_<pod>_<uid>/<container>/0.log
+                rule {
+                  source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+                  separator     = "/"
+                  action        = "replace"
+                  replacement   = "/var/log/pods/*$1/*.log"
+                  target_label  = "__path__"
+                }
+              }
+
+              local.file_match "pod_logs" {
+                path_targets = discovery.relabel.pod_logs.output
+              }
+
+              loki.source.file "pod_logs" {
+                targets       = local.file_match.pod_logs.targets
+                forward_to    = [loki.process.pod_logs.receiver]
+                tail_from_end = false
+              }
+
+              loki.process "pod_logs" {
+                // Unwrap the CRI envelope: "<ts> <stream> <flags> <line>".
+                stage.cri {}
+
+                // Structured logs only. The line filter keeps the JSON parser
+                // off plain-text logs, which would otherwise log a parse
+                // error for every single line.
+                stage.match {
+                  selector = "{namespace=~\".+\"} |~ \"^\\\\s*\\\\{\""
+
+                  // JMESPath, with fallbacks — Serilog writes PascalCase,
+                  // the OTel exporter writes snake_case, everyone else
+                  // does whatever they like.
+                  stage.json {
+                    expressions = {
+                      level    = "level || Level || LogLevel || severity",
+                      trace_id = "trace_id || TraceId || traceId || traceID",
+                      span_id  = "span_id || SpanId || spanId || spanID",
+                    }
+                  }
+
+                  // level is low-cardinality -> a real label, cheap to filter on.
+                  stage.labels {
+                    values = { level = "" }
+                  }
+
+                  // trace_id is high-cardinality -> structured metadata, which
+                  // is indexed for lookup but not for stream splitting. This
+                  // is what the Loki datasource's derived field clicks on to
+                  // open the trace in Tempo.
+                  stage.structured_metadata {
+                    values = {
+                      trace_id = "",
+                      span_id  = "",
+                    }
+                  }
+                }
+
+                forward_to = [loki.write.default.receiver]
+              }
+
+              // ---------------------------------------------------------
+              //  2. Kubernetes events
+              //     OOMKills, failed scheduling, image pull errors — the
+              //     things that explain a pod restart you'd otherwise be
+              //     guessing about.
+              // ---------------------------------------------------------
+
+              loki.source.kubernetes_events "cluster_events" {
+                job_name   = "kubernetes-events"
+                log_format = "logfmt"
+                forward_to = [loki.write.default.receiver]
+              }
+
+              // ---------------------------------------------------------
+              //  3. OTLP gateway
+              // ---------------------------------------------------------
+
+              otelcol.receiver.otlp "default" {
+                grpc {
+                  endpoint = "0.0.0.0:4317"
+                }
+                http {
+                  endpoint = "0.0.0.0:4318"
+                }
+
+                output {
+                  metrics = [otelcol.processor.k8sattributes.default.input]
+                  logs    = [otelcol.processor.k8sattributes.default.input]
+                  traces  = [otelcol.processor.k8sattributes.default.input]
+                }
+              }
+
+              // Stamp k8s identity onto telemetry the app didn't set itself,
+              // so a trace from a pod is joinable with that pod's logs and
+              // metrics without the app knowing it runs in Kubernetes.
+              otelcol.processor.k8sattributes "default" {
+                extract {
+                  metadata = [
+                    "k8s.namespace.name",
+                    "k8s.pod.name",
+                    "k8s.pod.uid",
+                    "k8s.node.name",
+                    "k8s.deployment.name",
+                    "k8s.container.name",
+                  ]
+                }
+
+                // The DaemonSet sees the sender's real pod IP, so connection
+                // association works without the app sending anything.
+                pod_association {
+                  source {
+                    from = "connection"
+                  }
+                }
+
+                output {
+                  metrics = [otelcol.processor.batch.default.input]
+                  logs    = [otelcol.processor.batch.default.input]
+                  traces  = [otelcol.processor.batch.default.input]
+                }
+              }
+
+              otelcol.processor.batch "default" {
+                send_batch_size     = 8192
+                send_batch_max_size = 16384
+                timeout             = "2s"
+
+                output {
+                  metrics = [otelcol.exporter.prometheus.default.input]
+                  logs    = [otelcol.exporter.otlphttp.loki.input]
+                  traces  = [otelcol.exporter.otlp.tempo.input]
+                }
+              }
+
+              otelcol.exporter.otlp "tempo" {
+                client {
+                  endpoint = "tempo.observability.svc.cluster.local:4317"
+                  tls {
+                    insecure = true
+                  }
+                }
+              }
+
+              // Loki 3.x speaks OTLP natively at /otlp/v1/logs. The exporter
+              // appends /v1/logs, so the endpoint stops at /otlp.
+              // service.name becomes the `service_name` label; every other
+              // resource attribute becomes structured metadata.
+              otelcol.exporter.otlphttp "loki" {
+                client {
+                  endpoint = "http://loki.observability.svc.cluster.local:3100/otlp"
+                }
+              }
+
+              // OTLP metrics -> Prometheus naming (dots to underscores, unit
+              // suffixes) -> remote write.
+              otelcol.exporter.prometheus "default" {
+                add_metric_suffixes = true
+                forward_to          = [prometheus.remote_write.default.receiver]
+              }
+
+              prometheus.remote_write "default" {
+                endpoint {
+                  url = "http://kube-prometheus-stack-prometheus.observability.svc.cluster.local:9090/api/v1/write"
+
+                  // Small cluster: flush eagerly rather than buffering.
+                  queue_config {
+                    capacity           = 2500
+                    max_shards         = 4
+                    max_samples_per_send = 500
+                  }
+                }
+
+                external_labels = {
+                  cluster = "lab",
+                }
+              }
+
+              // ---------------------------------------------------------
+              //  Sinks
+              // ---------------------------------------------------------
+
+              loki.write "default" {
+                endpoint {
+                  url = "http://loki.observability.svc.cluster.local:3100/loki/api/v1/push"
+                }
+
+                external_labels = {
+                  cluster = "lab",
+                }
+              }
+
+        controller:
+          type: daemonset
+
+        # Alloy scrapes itself; the pipeline-health dashboard reads these.
+        serviceMonitor:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    # Automated sync does NOT re-attempt a failed sync of the same revision.
+    # Depends on CRDs/Secrets from earlier waves; retry instead of sitting red.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }
