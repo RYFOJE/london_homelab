@@ -16,6 +16,14 @@ spec:
         # Single node: hostNetwork makes the node IP the ingress IP,
         # which is exactly what dnsmasq points at. No MetalLB needed.
         hostNetwork: true
+        deployment:
+          # hostNetwork pods get the NODE's resolver by default, which knows
+          # nothing about *.svc.cluster.local. Ingress routing never notices
+          # (it dials endpoint IPs), but the forward-auth Middleware dials
+          # authentik-server.authentik.svc.cluster.local by name and every
+          # protected app answers 500 until this is set. Lives under
+          # deployment: -- a top-level dnsPolicy is silently dropped.
+          dnsPolicy: ClusterFirstWithHostNet
         service:
           enabled: false
 

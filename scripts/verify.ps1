@@ -69,7 +69,13 @@ function Get-HttpStatus {
     param([string]$Url, [string]$HostHeader)
     $handler = [System.Net.Http.HttpClientHandler]::new()
     $handler.AllowAutoRedirect = $false
-    $handler.ServerCertificateCustomValidationCallback = { $true }
+    # NOT a scriptblock: HttpClient invokes the callback on a thread-pool
+    # thread with no PowerShell runspace, and a scriptblock there throws
+    # "There is no Runspace available" -- surfacing as "The SSL connection
+    # could not be established" on every https URL. The built-in delegate
+    # runs without PowerShell. Section 9 checks the cert properly.
+    $handler.ServerCertificateCustomValidationCallback =
+    [System.Net.Http.HttpClientHandler]::DangerousAcceptAnyServerCertificateValidator
     $client = [System.Net.Http.HttpClient]::new($handler)
     $client.Timeout = [TimeSpan]::FromSeconds(10)
     try {
