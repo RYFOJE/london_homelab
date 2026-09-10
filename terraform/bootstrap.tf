@@ -6,7 +6,7 @@
 # CRD does not exist yet, which is always true on a first apply.
 
 resource "helm_release" "argocd" {
-  depends_on = [data.talos_cluster_health.this]
+  depends_on = [talos_cluster_kubeconfig.this]
 
   name             = "argocd"
   namespace        = "argocd"

@@ -12,3 +12,6 @@
 kubeconfig
 talosconfig
 crash.log
+
+# Helm provider's isolated repo cache
+terraform/.helm/

@@ -138,9 +138,16 @@ resource "talos_cluster_kubeconfig" "this" {
   endpoint             = local.talos.ip
 }
 
-data "talos_cluster_health" "this" {
-  depends_on           = [talos_cluster_kubeconfig.this]
-  client_configuration = talos_machine_secrets.this.client_configuration
-  control_plane_nodes  = [local.talos.ip]
-  endpoints            = [local.talos.ip]
-}
+# data "talos_cluster_health" was here and has been removed.
+#
+# Provider v0.11.0 (latest stable) cannot deserialize Talos 1.14's
+# block.VolumeStatusSpec -- its "waiting for all nodes disk sizes" check dies
+# with a bogus "detected a 32bit machine" unmarshalling error and the read
+# never returns. Every check before it passes; the cluster is genuinely fine.
+#
+# v0.12.0-alpha.5 bumps the Talos SDK but targets 1.14.0-alpha.1, not final
+# 1.14, so it is not obviously a fix. Revisit when 0.12.0 ships stable.
+#
+# Nothing is really lost: helm_release has wait = true, so it blocks on its
+# own pods becoming ready, and a kubeconfig only exists once the apiserver
+# is serving.

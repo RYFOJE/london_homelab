@@ -87,6 +87,18 @@ resource "terraform_data" "dnsmasq" {
     agent = true
   }
 
+  # Order matters. Installing dnsmasq AFTER writing /etc/dnsmasq.conf makes
+  # dpkg see a modified conffile and prompt "keep or replace?" on a terminal
+  # nobody is attached to, and the apply hangs forever. DEBIAN_FRONTEND does
+  # not suppress it -- that prompt is dpkg's, not debconf's. So: install
+  # first, then overwrite the config, then restart.
+  provisioner "remote-exec" {
+    inline = [
+      "apt-get update",
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef dnsmasq",
+    ]
+  }
+
   provisioner "file" {
     content     = local.dnsmasq_conf
     destination = "/etc/dnsmasq.conf"
@@ -94,10 +106,9 @@ resource "terraform_data" "dnsmasq" {
 
   provisioner "remote-exec" {
     inline = [
-      "apt-get update",
-      "DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq",
       "systemctl enable dnsmasq",
       "systemctl restart dnsmasq",
+      "systemctl is-active dnsmasq",
     ]
   }
 }
