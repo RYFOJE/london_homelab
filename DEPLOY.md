@@ -150,10 +150,12 @@ they mean:
   should not recur; if it does, wait for `kubectl get nodes` to show Ready
   and run `terraform apply -refresh=false` again.
 - `namespaces "<name>" already exists`: ArgoCD created it first (it has
-  `CreateNamespace=true`). Adopt it, then apply again:
+  `CreateNamespace=true`), or the namespace predates Terraform managing it
+  (`cert-manager` on clusters built before the TLS change). Adopt it, then
+  apply again. The resource name uses an underscore, the namespace a dash:
 
   ```powershell
-  terraform import kubernetes_namespace_v1.<name> <name>
+  terraform import kubernetes_namespace_v1.cert_manager cert-manager
   ```
 
 When it finishes:

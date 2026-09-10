@@ -10,7 +10,10 @@ spec:
   source:
     repoURL: https://charts.jetstack.io
     chart: cert-manager
-    targetRevision: v1.16.2  # check for a newer release
+    # >= 1.16.4 required: older releases fail Cloudflare DNS-01 cleanup with
+    # "DELETE /zones//dns_records/... 7003" after Cloudflare stopped returning
+    # zone_id on DNS records. The challenge validates, then sticks forever.
+    targetRevision: v1.21.1
     helm:
       values: |
         crds:
@@ -20,7 +23,8 @@ spec:
     namespace: cert-manager
   syncPolicy:
     automated: { prune: true, selfHeal: true }
-    syncOptions: ["CreateNamespace=true"]
+    # SSA: the CRDs grew past the last-applied-configuration annotation limit.
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
 ---
 # ClusterIssuers and the lab wildcard Certificate live in cluster/lab/tls
 # (Application "tls", wave 1). The Cloudflare token they need is written by
