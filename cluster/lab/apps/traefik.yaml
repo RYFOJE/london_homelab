@@ -78,6 +78,13 @@ spec:
             port: 80
           websecure:
             port: 443
+          # Chart default is 9100 -- the same host port node-exporter binds
+          # (also hostNetwork). The scheduler treats containerPort as hostPort
+          # for hostNetwork pods, so after every node reboot whichever of the
+          # two lands first wins and the other sits Pending with "didn't have
+          # free ports". Nothing scrapes Traefik's metrics yet; just move them.
+          metrics:
+            port: 9101
           # Raw TCP for the dev databases. hostNetwork means these bind on the
           # node IP directly, so a laptop on the LAN reaches Postgres at
           # 192.168.18.80:5432 and AMQP at :5672 with no NodePort remapping.

@@ -27,6 +27,9 @@ scripts/              preflight.ps1 (before apply), verify.ps1 (after)
 
 ## Run order
 
+Full from-zero runbook, click-ops included: [DEPLOY.md](DEPLOY.md).
+The short version:
+
 ```powershell
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars   # fill in
 ./scripts/preflight.ps1            # SSH agent, PVE token, URLs, IP/VMID clashes

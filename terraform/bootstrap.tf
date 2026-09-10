@@ -59,7 +59,19 @@ resource "helm_release" "argocd" {
 }
 
 resource "helm_release" "root_app" {
-  depends_on = [helm_release.argocd]
+  # The namespaces below are ALSO created by ArgoCD (CreateNamespace=true on
+  # the apps that land in them). Whoever gets there second fails: Terraform
+  # with "namespaces X already exists", which then needs a `terraform import`.
+  # Ordering the root app after them means Terraform always wins on a fresh
+  # build. On an existing cluster where ArgoCD already created one, import it:
+  #   terraform import kubernetes_namespace_v1.<name> <name>
+  depends_on = [
+    helm_release.argocd,
+    kubernetes_namespace_v1.authentik,
+    kubernetes_namespace_v1.observability,
+    kubernetes_namespace_v1.elastic,
+    kubernetes_namespace_v1.database,
+  ]
 
   name       = "root"
   namespace  = "argocd"

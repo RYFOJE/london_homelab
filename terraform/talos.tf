@@ -22,6 +22,18 @@ resource "proxmox_virtual_environment_vm" "talos" {
 
   agent {
     enabled = true # requires the qemu-guest-agent schematic extension
+    # Upper bound on any agent wait; the default is 15m and it applies to
+    # plan/refresh as well as apply.
+    timeout = "2m"
+
+    # With the agent enabled, the provider waits on it to report an IP during
+    # every refresh -- minutes of "Refreshing state..." on plan AND apply,
+    # even though the agent answers instantly (PVE 9 + provider 0.112).
+    # Nothing here reads the reported addresses (the IP is static, from
+    # locals.tf), so skip the lookup entirely.
+    wait_for_ip {
+      disabled = true
+    }
   }
 
   machine = "q35"

@@ -14,7 +14,19 @@
 resource "terraform_data" "wait_for_apiserver" {
   depends_on = [talos_cluster_kubeconfig.this]
 
-  triggers_replace = [talos_machine_bootstrap.this.id]
+  # Re-run the wait after anything that takes the apiserver down mid-apply,
+  # not only on first bootstrap. A memory/cores change reboots the VM and the
+  # Proxmox provider reports "Modifications complete" as soon as it is
+  # powered on -- long before kubelet is serving -- so every Secret and
+  # namespace below would otherwise fail with "i/o timeout" or "connection
+  # refused" (seen on the 8 -> 12 GiB change). Machine-config changes can
+  # reboot too, depending on what changed.
+  triggers_replace = [
+    talos_machine_bootstrap.this.id,
+    proxmox_virtual_environment_vm.talos.memory[0].dedicated,
+    proxmox_virtual_environment_vm.talos.cpu[0].cores,
+    talos_machine_configuration_apply.this.machine_configuration_hash,
+  ]
 
   provisioner "local-exec" {
     interpreter = ["pwsh", "-NoProfile", "-Command"]
