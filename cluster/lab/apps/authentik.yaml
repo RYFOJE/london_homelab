@@ -1,4 +1,4 @@
-# Sync wave 10: needs storage, ingress and certs already up.
+# Sync wave 10: needs storage, ingress, certs and the database already up.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -11,41 +11,50 @@ spec:
   source:
     repoURL: https://charts.goauthentik.io
     chart: authentik
-    targetRevision: 2024.12.3 # check for a newer release
+    targetRevision: 2026.8.2
     helm:
       values: |
+        # Postgres comes from CloudNativePG, not the bundled Bitnami subchart.
+        # Recent authentik dropped Redis entirely (tasks moved to Postgres),
+        # so there is one less stateful component than the old chart needed.
+        postgresql:
+          enabled: false
+
+        authentik:
+          postgresql:
+            host: authentik-db-rw
+            name: authentik
+            user: authentik
+            port: 5432
+
+        # Credentials arrive as env vars from Secrets -- never as values.
+        # AUTHENTIK_POSTGRESQL__PASSWORD comes from the Secret CNPG generates.
+        # AUTHENTIK_SECRET_KEY comes from External Secrets.
+        global:
+          env:
+            - name: AUTHENTIK_POSTGRESQL__PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: authentik-db-app
+                  key: password
+            - name: AUTHENTIK_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: authentik-secret-key
+                  key: secret-key
+
         server:
           ingress:
             enabled: true
             ingressClassName: traefik
             hosts:
-              - auth.lab.example.com
-        # Bitnami removed versioned tags from docker.io/bitnami/* -- only
-        # "latest" for a reduced catalogue remains free, and everything
-        # pinned now 404s. The old tags live on in bitnamilegacy/*.
-        #
-        # STOPGAP: bitnamilegacy is frozen and gets no security updates.
-        # The real fix is upgrading to the current authentik chart (2026.8.x)
-        # and running Postgres via CloudNativePG instead -- that chart also
-        # dropped the bundled Redis, so it is a values rewrite, not a bump.
-        postgresql:
-          enabled: true
-          image:
-            repository: bitnamilegacy/postgresql
-        redis:
-          enabled: true
-          image:
-            repository: bitnamilegacy/redis
+              - host: auth.lab.ryfoje.com
+                paths:
+                  - path: /
+                    pathType: Prefix
   destination:
     server: https://kubernetes.default.svc
     namespace: authentik
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]
----
-# Postgres sits on local-path, so a rebuild wipes your users.
-# Define users, groups, applications and OIDC providers as Authentik
-# BLUEPRINTS committed to this repo. Rebuild then reprovisions identity
-# from source, and it is the only clickops-free way to configure it.
-#
-# Keep the ArgoCD local `admin` account enabled as break-glass, forever.

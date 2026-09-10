@@ -11,6 +11,9 @@ terraform {
     kubernetes = {
       source = "hashicorp/kubernetes"
     }
+    random = {
+      source = "hashicorp/random"
+    }
     helm = {
       source = "hashicorp/helm"
       # Pinned deliberately: helm 3.x replaced the `kubernetes { }` block

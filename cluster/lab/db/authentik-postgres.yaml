@@ -1,0 +1,24 @@
+# CNPG generates a Secret named "<cluster>-app" holding username, password,
+# dbname, host and port. Nothing here is a credential in git -- Authentik
+# reads that generated Secret directly.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: authentik-db
+  namespace: authentik
+spec:
+  instances: 1 # single node; more would just co-locate and buy nothing
+
+  storage:
+    size: 10Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: authentik
+      owner: authentik
+
+  # Connect via the service "authentik-db-rw".
+  postgresql:
+    parameters:
+      max_connections: "200"

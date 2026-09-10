@@ -15,3 +15,6 @@ crash.log
 
 # Helm provider's isolated repo cache
 terraform/.helm/
+
+# Files staged for removal (rm is blocked over the device bridge)
+_to_delete/

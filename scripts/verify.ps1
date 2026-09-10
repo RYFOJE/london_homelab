@@ -47,15 +47,18 @@ function Get-HclValue {
     return $null
 }
 
-function Invoke-Kubectl {
+function Get-KubeJson {
     # Takes an explicit array and splats it. A ValueFromRemainingArguments
     # parameter does NOT work here: PowerShell binds "-o" to the common
     # -OutVariable/-OutBuffer parameters before the remaining-args parameter
     # ever sees it, and fails with "parameter name 'o' is ambiguous".
+    #
+    # Converts here rather than returning raw: piping a $null result into
+    # ConvertFrom-Json at the call site throws before any null check runs.
     param([string[]]$KArgs)
     $out = & kubectl @KArgs 2>&1
     if ($LASTEXITCODE -ne 0) { return $null }
-    return $out
+    try { return ($out | Out-String | ConvertFrom-Json) } catch { return $null }
 }
 
 $TerraformDir = [System.IO.Path]::GetFullPath($TerraformDir)
@@ -119,9 +122,18 @@ if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
     Report 'kubectl' 'FAIL' 'not on PATH'
     Write-Host ''; Write-Host "$script:Fail failed" -ForegroundColor Red; exit 1
 }
-$nodes = Invoke-Kubectl @('get','nodes','-o','json') | ConvertFrom-Json
+$nodes = Get-KubeJson @('get','nodes','-o','json')
 if (-not $nodes) {
-    Report 'cluster reachable' 'FAIL' 'kubectl cannot reach the API -- is KUBECONFIG set?'
+    $hint = if (-not $env:KUBECONFIG) {
+        'KUBECONFIG is not set in this session'
+    }
+    elseif (-not (Test-Path $env:KUBECONFIG)) {
+        "KUBECONFIG points at $env:KUBECONFIG which does not exist"
+    }
+    else {
+        "using $env:KUBECONFIG -- if you rebuilt the cluster this file is stale, regenerate it with: terraform output -raw kubeconfig"
+    }
+    Report 'cluster reachable' 'FAIL' $hint
     Write-Host ''; Write-Host "$script:Fail failed" -ForegroundColor Red; exit 1
 }
 foreach ($n in $nodes.items) {
@@ -131,13 +143,13 @@ foreach ($n in $nodes.items) {
 
 # ============================================================ 4. storage
 Section '4. Storage'
-$sc = Invoke-Kubectl @('get','storageclass','-o','json') | ConvertFrom-Json
+$sc = Get-KubeJson @('get','storageclass','-o','json')
 $def = $sc.items | Where-Object {
     $_.metadata.annotations.'storageclass.kubernetes.io/is-default-class' -eq 'true'
 }
 Report 'default StorageClass' ($def ? 'PASS' : 'FAIL') ($def ? $def.metadata.name : 'none is marked default')
 
-$pvcs = Invoke-Kubectl @('get','pvc','-A','-o','json') | ConvertFrom-Json
+$pvcs = Get-KubeJson @('get','pvc','-A','-o','json')
 $pending = $pvcs.items | Where-Object { $_.status.phase -ne 'Bound' }
 if ($pending) {
     foreach ($p in $pending) {
@@ -148,7 +160,7 @@ else { Report 'all PVCs bound' 'PASS' "$($pvcs.items.Count) total" }
 
 # =============================================================== 5. pods
 Section '5. Workloads'
-$pods = Invoke-Kubectl @('get','pods','-A','-o','json') | ConvertFrom-Json
+$pods = Get-KubeJson @('get','pods','-A','-o','json')
 $bad = $pods.items | Where-Object {
     $_.status.phase -notin @('Running', 'Succeeded') -or
     ($_.status.containerStatuses | Where-Object { -not $_.ready -and -not $_.state.terminated })
@@ -163,7 +175,7 @@ else { Report 'all pods healthy' 'PASS' "$($pods.items.Count) running" }
 
 # ============================================================= 6. gitops
 Section '6. GitOps'
-$apps = Invoke-Kubectl @('get','applications','-n','argocd','-o','json') | ConvertFrom-Json
+$apps = Get-KubeJson @('get','applications','-n','argocd','-o','json')
 if (-not $apps -or $apps.items.Count -eq 0) {
     Report 'ArgoCD Applications' 'FAIL' 'none found -- did the root app sync?'
 }

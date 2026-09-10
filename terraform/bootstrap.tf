@@ -6,7 +6,7 @@
 # CRD does not exist yet, which is always true on a first apply.
 
 resource "helm_release" "argocd" {
-  depends_on = [talos_cluster_kubeconfig.this]
+  depends_on = [terraform_data.wait_for_apiserver]
 
   name             = "argocd"
   namespace        = "argocd"

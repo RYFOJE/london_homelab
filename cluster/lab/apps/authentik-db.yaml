@@ -1,0 +1,22 @@
+# Plain manifests, not a chart -- the root app only recurses apps/, so the
+# Cluster resource needs its own Application pointing at db/.
+# Wave 5: after the CNPG operator (-3), before Authentik (10).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik-db
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/db
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
