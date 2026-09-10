@@ -1,0 +1,86 @@
+# Wave 12: after the database (5), the forward-auth Middleware (6) and
+# Authentik (10). Ingress is gated by Authentik; pgAdmin then trusts the
+# X-Authentik-Email header the middleware stamps on every request, so there
+# is exactly one login. pgAdmin is ClusterIP-only -- the header can only be
+# forged by something already inside the cluster.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: pgadmin
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "12"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.runix.net
+    chart: pgadmin4
+    targetRevision: 1.66.0
+    helm:
+      values: |
+        # The bootstrap admin. Set the email to YOUR Authentik account's email
+        # and the header login lands on this admin account instead of
+        # auto-creating a second, non-admin user. Password is Terraform's
+        # (secrets.tf) and nobody ever types it.
+        existingSecret: pgadmin-admin
+        secretKeys:
+          pgadminPasswordKey: password
+        env:
+          email: ryfoje2@gmail.com
+          variables:
+            # Trust the reverse proxy for identity. pgAdmin checks the WSGI
+            # environ first, then request headers, for this exact name.
+            - name: PGADMIN_CONFIG_AUTHENTICATION_SOURCES
+              value: "['webserver']"
+            - name: PGADMIN_CONFIG_WEBSERVER_REMOTE_USER
+              value: "'X-Authentik-Email'"
+            - name: PGADMIN_CONFIG_WEBSERVER_AUTO_CREATE_USER
+              value: "True"
+            # Master password is a desktop-mode concept; in server mode it
+            # only adds a second prompt in front of saved DB passwords.
+            - name: PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED
+              value: "False"
+
+        # Pre-registered connection. Password is not here on purpose: paste
+        # it once from the dev-db-app Secret and tick "Save password".
+        serverDefinitions:
+          enabled: true
+          resourceType: ConfigMap
+          servers:
+            dev-db:
+              Name: dev-db
+              Group: Lab
+              Host: dev-db-rw.database.svc.cluster.local
+              Port: 5432
+              MaintenanceDB: dev
+              Username: dev
+              SSLMode: prefer
+
+        ingress:
+          enabled: true
+          ingressClassName: traefik
+          annotations:
+            traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik-forward-auth@kubernetescrd
+          hosts:
+            - host: pgadmin.lab.ryfoje.com
+              paths:
+                - path: /
+                  pathType: Prefix
+
+        persistentVolume:
+          enabled: true
+          storageClass: local-path
+          size: 2Gi
+
+        resources:
+          requests: { cpu: 50m, memory: 128Mi }
+          limits: { memory: 512Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: database
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

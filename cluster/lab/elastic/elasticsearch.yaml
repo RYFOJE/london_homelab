@@ -1,0 +1,56 @@
+# Single-node Elasticsearch for dev. ECK writes the `elastic` superuser's
+# password to Secret "elasticsearch-es-elastic-user":
+#   kubectl -n elastic get secret elasticsearch-es-elastic-user -o jsonpath='{.data.elastic}' | base64 -d
+# In-cluster: http://elasticsearch-es-http.elastic.svc.cluster.local:9200
+# LAN:        http://elasticsearch.lab.ryfoje.com  (basic auth, no Authentik --
+#             API clients cannot follow a login redirect)
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: elasticsearch
+  namespace: elastic
+spec:
+  version: 9.5.3
+
+  # ECK defaults to a self-signed HTTPS endpoint. Plain HTTP inside the
+  # cluster and behind Traefik saves every client a CA bundle; the elastic
+  # password still gates everything.
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+
+  # Kibana's anonymous provider signs in as this file-realm user. The Secret
+  # (username/password/roles) is written by Terraform (secrets.tf).
+  auth:
+    fileRealm:
+      - secretName: kibana-anonymous
+
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        # mmap is allowed because talos.tf raises vm.max_map_count on the
+        # node. If that ever goes away, set this to false instead.
+        node.store.allow_mmap: true
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: local-path
+            resources:
+              requests:
+                storage: 30Gi
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              env:
+                # Heap = half the container. ES would pick this itself, but
+                # explicit beats discovering the JVM chose 4g on a 2g pod.
+                - name: ES_JAVA_OPTS
+                  value: -Xms1g -Xmx1g
+              resources:
+                requests: { cpu: 500m, memory: 2Gi }
+                limits: { memory: 2Gi }

@@ -108,6 +108,13 @@ data "talos_machine_configuration" "this" {
           # hosting and bootstrap deadlocks pulling images, with no useful error.
           nameservers = local.net.upstream
         }
+        # Elasticsearch mmaps its index files and refuses to start below this
+        # (ECK docs: 1048576 for 8.16+). Applied live, no reboot. The
+        # alternative is node.store.allow_mmap=false on every Elasticsearch
+        # resource, which trades the node setting for slower searches.
+        sysctls = {
+          "vm.max_map_count" = "1048576"
+        }
         kubelet = {
           # local-path-provisioner's default /opt path is not writable on
           # Talos, and kubelet cannot see host paths it has not been given.

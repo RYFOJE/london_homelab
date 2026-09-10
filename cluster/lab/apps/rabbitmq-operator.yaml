@@ -1,0 +1,37 @@
+# RabbitMQ Cluster Operator, straight from its git tag. Not the Bitnami
+# chart (see cloudnative-pg.yaml for how that ended) and not a vendored copy
+# of the 6000-line release manifest.
+#
+# config/installation is the kustomize overlay the release manifest is built
+# from, but the tag in git says "latest"; the image override below pins it to
+# the same tag as the source, which is byte-for-byte what the release ships.
+# Bump both together.
+#
+# Wave 8: needs cert-manager (-5) -- the operator's admission webhook gets
+# its serving cert from an Issuer in the same manifest.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rabbitmq-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/rabbitmq/cluster-operator.git
+    targetRevision: v2.23.0
+    path: config/installation
+    kustomize:
+      images:
+        - rabbitmqoperator/cluster-operator-dev=ghcr.io/rabbitmq/cluster-operator:2.23.0
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: rabbitmq-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    # The RabbitmqCluster CRD is far past the last-applied annotation limit.
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

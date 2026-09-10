@@ -1,0 +1,44 @@
+# Kibana behind the Authentik forward-auth gate. Kibana's own login is
+# replaced by the anonymous provider, which signs every visitor in as the
+# kibana-anon file-realm user -- so Authentik's page is the only login.
+# (Kibana's OIDC realm needs a paid license; this does not.)
+apiVersion: kibana.k8s.elastic.co/v1
+kind: Kibana
+metadata:
+  name: kibana
+  namespace: elastic
+spec:
+  version: 9.5.3
+  count: 1
+
+  elasticsearchRef:
+    name: elasticsearch
+
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+
+  config:
+    server.publicBaseUrl: http://kibana.lab.ryfoje.com
+    # kibana.yml expands ${VAR} from the environment at startup.
+    xpack.security.authc.providers:
+      anonymous.anonymous1:
+        order: 0
+        credentials:
+          username: kibana-anon
+          password: ${KIBANA_ANON_PASSWORD}
+
+  podTemplate:
+    spec:
+      containers:
+        - name: kibana
+          env:
+            - name: KIBANA_ANON_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kibana-anonymous
+                  key: password
+          resources:
+            requests: { cpu: 200m, memory: 1Gi }
+            limits: { memory: 1Gi }

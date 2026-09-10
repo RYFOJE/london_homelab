@@ -1,0 +1,35 @@
+# The Azure Service Bus stand-in. Queues, exchanges as topics, dead-letter
+# exchanges, TTLs, all of it -- the .NET client (RabbitMQ.Client or
+# MassTransit) maps straight over.
+#
+# The operator writes Secret "rabbitmq-default-user" (username, password,
+# plus host/port and a ready-made connection string) and Service "rabbitmq"
+# with 5672 amqp, 15672 management, 15692 prometheus.
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: rabbitmq
+  namespace: messaging
+spec:
+  replicas: 1
+
+  persistence:
+    storageClassName: local-path
+    storage: 10Gi
+
+  # Operator default is 2Gi requested; a lab broker idles at ~150Mi.
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { memory: 1Gi }
+
+  rabbitmq:
+    additionalConfig: |
+      # Start shedding publishers at 60% of the container limit rather than
+      # the 40%-of-host default, which on a hostNetwork-free pod reads the
+      # cgroup limit anyway but errs conservative.
+      vm_memory_high_watermark.relative = 0.6
+      # Management UI behind a reverse proxy.
+      management.path_prefix = /
+    additionalPlugins:
+      - rabbitmq_shovel
+      - rabbitmq_shovel_management

@@ -1,0 +1,25 @@
+# Plain manifests: RabbitmqCluster, management Ingress, AMQP TCP route,
+# PodMonitor. Wave 22: after the operator (8), the forward-auth Middleware
+# (6) and the Prometheus CRDs (15).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rabbitmq
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "22"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/messaging
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: messaging
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: ["CreateNamespace=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

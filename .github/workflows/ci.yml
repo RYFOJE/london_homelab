@@ -27,9 +27,11 @@ jobs:
         run: |
           curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
           # ArgoCD and CNPG CRDs come from datreeio's CRD catalog; core kinds from the default schema.
-          # Grafana dashboard JSON lives beside its kustomization; it is not a manifest.
+          # Grafana dashboard JSON and Authentik blueprints live beside their
+          # kustomizations; neither is a Kubernetes manifest.
           ./kubeconform -strict -summary \
             -ignore-filename-pattern '.*\.json$' \
+            -ignore-filename-pattern '.*blueprints.*' \
             -schema-location default \
             -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
             cluster/

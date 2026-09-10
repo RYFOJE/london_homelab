@@ -1,0 +1,35 @@
+# The dev Postgres. Separate from authentik-db on purpose: a runaway dev
+# query must not take the login system with it, and this one can be dropped
+# and recreated without touching anything else.
+#
+# CNPG writes Secret "dev-db-app" (username, password, dbname, host, port,
+# uri, jdbc-uri, pgpass). Apps in this namespace mount it; from anywhere else
+# copy the password once:
+#   kubectl -n database get secret dev-db-app -o jsonpath='{.data.password}' | base64 -d
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: dev-db
+  namespace: database
+spec:
+  instances: 1
+
+  storage:
+    size: 20Gi
+    storageClass: local-path
+
+  bootstrap:
+    initdb:
+      database: dev
+      owner: dev
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+  # Connect via "dev-db-rw.database.svc.cluster.local:5432", or from the LAN
+  # via 192.168.18.80:5432 (Traefik TCP entrypoint, see ingressroute-tcp.yaml).
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: 128MB

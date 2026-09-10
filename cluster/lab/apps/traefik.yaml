@@ -63,6 +63,12 @@ spec:
           kubernetesIngress:
             publishedService:
               enabled: false
+          # One forward-auth Middleware lives in the authentik namespace and
+          # every protected Ingress in every other namespace points at it
+          # (authentik-authentik-forward-auth@kubernetescrd). Off by default;
+          # without it the annotation is silently ignored and the app is open.
+          kubernetesCRD:
+            allowCrossNamespace: true
 
         additionalArguments:
           - "--providers.kubernetesingress.ingressendpoint.ip=192.168.18.80"
@@ -72,6 +78,23 @@ spec:
             port: 80
           websecure:
             port: 443
+          # Raw TCP for the dev databases. hostNetwork means these bind on the
+          # node IP directly, so a laptop on the LAN reaches Postgres at
+          # 192.168.18.80:5432 and AMQP at :5672 with no NodePort remapping.
+          # Routing is an IngressRouteTCP with HostSNI("*") next to each
+          # service (cluster/lab/database, cluster/lab/messaging).
+          postgres:
+            port: 5432
+            protocol: TCP
+            expose:
+              default: true
+            exposedPort: 5432
+          amqp:
+            port: 5672
+            protocol: TCP
+            expose:
+              default: true
+            exposedPort: 5672
         # No http->https redirect yet: there is no ClusterIssuer, so nothing
         # is serving TLS. Add it once cert-manager can issue.
   destination:

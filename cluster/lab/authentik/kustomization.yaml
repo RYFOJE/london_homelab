@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: authentik
+
+resources:
+  - middleware.yaml
+
+# Authentik configuration as code. The chart mounts this ConfigMap at
+# /blueprints (authentik.yaml: blueprints.configMaps) and the worker applies
+# every key ending in .yaml, re-applying whenever the content changes.
+# Adding an app: drop a file in blueprints/, add it here, commit.
+configMapGenerator:
+  - name: authentik-blueprints
+    files:
+      - blueprints/lab-forward-auth.yaml
+      - blueprints/grafana.yaml
+
+generatorOptions:
+  # The chart references the ConfigMap by its plain name.
+  disableNameSuffixHash: true

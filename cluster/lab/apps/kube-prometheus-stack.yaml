@@ -141,6 +141,10 @@ spec:
             userKey: admin-user
             passwordKey: admin-password
 
+          # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / _SECRET, written by secrets.tf.
+          # The matching Authentik provider is cluster/lab/authentik/blueprints/grafana.yaml.
+          envFromSecret: grafana-oidc
+
           persistence:
             enabled: true
             type: pvc
@@ -237,30 +241,33 @@ spec:
               auto_assign_org: true
               auto_assign_org_role: Viewer
             auth:
+              # Login form stays: the local admin is the break-glass path.
               disable_login_form: false
               oauth_auto_login: false
+              signout_redirect_url: http://auth.lab.ryfoje.com/application/o/grafana/end-session/
             feature_toggles:
               enable: traceqlEditor traceToProfiles
             unified_alerting:
               enabled: true
             alerting:
               enabled: false
-            # ---- SSO: enable once the Authentik provider blueprint exists ----
-            # Needs a Secret `grafana-oidc` with GF_AUTH_GENERIC_OAUTH_CLIENT_ID
-            # and GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET, plus `envFromSecret:
-            # grafana-oidc` at the grafana: level. Redirect URI in Authentik:
-            #   http://grafana.lab.ryfoje.com/login/generic_oauth
-            # auth.generic_oauth:
-            #   enabled: true
-            #   name: Authentik
-            #   allow_sign_up: true
-            #   scopes: "openid profile email"
-            #   auth_url: http://auth.lab.ryfoje.com/application/o/authorize/
-            #   token_url: http://auth.lab.ryfoje.com/application/o/token/
-            #   api_url: http://auth.lab.ryfoje.com/application/o/userinfo/
-            #   role_attribute_path: >-
-            #     contains(groups[*], 'grafana-admins') && 'Admin' ||
-            #     contains(groups[*], 'grafana-editors') && 'Editor' || 'Viewer'
+            # ---- SSO via Authentik ----
+            # Browser-facing URL is the LAN name; the two URLs Grafana calls
+            # itself are the in-cluster Service, because CoreDNS cannot
+            # resolve *.lab.ryfoje.com (README "Known gaps"). Authentik does
+            # not care which Host the token endpoint is reached on.
+            auth.generic_oauth:
+              enabled: true
+              name: Authentik
+              allow_sign_up: true
+              scopes: openid profile email
+              auth_url: http://auth.lab.ryfoje.com/application/o/authorize/
+              token_url: http://authentik-server.authentik.svc.cluster.local/application/o/token/
+              api_url: http://authentik-server.authentik.svc.cluster.local/application/o/userinfo/
+              # Groups come from the profile scope. Anyone else is a Viewer.
+              role_attribute_path: >-
+                contains(groups[*], 'grafana-admins') && 'Admin' ||
+                contains(groups[*], 'grafana-editors') && 'Editor' || 'Viewer'
 
           ingress:
             enabled: true
@@ -306,6 +313,14 @@ spec:
                 gnetId: 13639
                 revision: 2
                 datasource: Loki
+              rabbitmq-overview:
+                gnetId: 10991
+                revision: 11
+                datasource: Prometheus
+              cloudnative-pg:
+                gnetId: 20417
+                revision: 4
+                datasource: Prometheus
   destination:
     server: https://kubernetes.default.svc
     namespace: observability

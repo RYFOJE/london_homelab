@@ -87,3 +87,111 @@ resource "kubernetes_secret_v1" "grafana_admin" {
     "admin-password" = random_password.grafana_admin.result
   }
 }
+
+# ---------------------------------------------------------------------------
+# Dev platform secrets. Same rule as above: generated here, kept in tfstate,
+# never in git. Each one exists because a component refuses to start without
+# a credential and the credential has to reach two places at once.
+# ---------------------------------------------------------------------------
+
+# Grafana <-> Authentik OIDC client secret. Authentik's blueprint reads it
+# through an env var (!Env GRAFANA_OIDC_CLIENT_SECRET) and Grafana reads it
+# through envFromSecret, so the same value lands in two namespaces.
+
+resource "random_password" "grafana_oidc_client_secret" {
+  length  = 64
+  special = false
+}
+
+resource "kubernetes_secret_v1" "grafana_oidc" {
+  metadata {
+    name      = "grafana-oidc"
+    namespace = kubernetes_namespace_v1.observability.metadata[0].name
+  }
+
+  data = {
+    "GF_AUTH_GENERIC_OAUTH_CLIENT_ID"     = "grafana"
+    "GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET" = random_password.grafana_oidc_client_secret.result
+  }
+}
+
+resource "kubernetes_secret_v1" "authentik_blueprint_env" {
+  metadata {
+    name      = "authentik-blueprint-env"
+    namespace = kubernetes_namespace_v1.authentik.metadata[0].name
+  }
+
+  data = {
+    "grafana-oidc-client-secret" = random_password.grafana_oidc_client_secret.result
+  }
+}
+
+# Kibana's anonymous provider signs every visitor in as this Elasticsearch
+# file-realm user, so the Authentik forward-auth page is the only login.
+# ECK reads the basic-auth Secret to create the user; Kibana reads the
+# password back via env. superuser because Authentik already gates who can
+# reach Kibana at all, and a dev lab needs index management from the UI.
+
+resource "random_password" "kibana_anonymous" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_namespace_v1" "elastic" {
+  depends_on = [terraform_data.wait_for_apiserver]
+
+  metadata {
+    name = "elastic"
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "kubernetes_secret_v1" "kibana_anonymous" {
+  metadata {
+    name      = "kibana-anonymous"
+    namespace = kubernetes_namespace_v1.elastic.metadata[0].name
+  }
+
+  type = "kubernetes.io/basic-auth"
+
+  data = {
+    "username" = "kibana-anon"
+    "password" = random_password.kibana_anonymous.result
+    "roles"    = "superuser"
+  }
+}
+
+# pgAdmin insists on a bootstrap admin account even though every real login
+# arrives as an Authentik header. Nobody types this password; it only has to
+# exist so the container starts.
+
+resource "random_password" "pgadmin_admin" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_namespace_v1" "database" {
+  depends_on = [terraform_data.wait_for_apiserver]
+
+  metadata {
+    name = "database"
+  }
+
+  lifecycle {
+    ignore_changes = [metadata[0].labels, metadata[0].annotations]
+  }
+}
+
+resource "kubernetes_secret_v1" "pgadmin_admin" {
+  metadata {
+    name      = "pgadmin-admin"
+    namespace = kubernetes_namespace_v1.database.metadata[0].name
+  }
+
+  data = {
+    "password" = random_password.pgadmin_admin.result
+  }
+}

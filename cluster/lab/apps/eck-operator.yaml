@@ -1,0 +1,31 @@
+# Elastic Cloud on Kubernetes: the operator that turns Elasticsearch and
+# Kibana CRs into StatefulSets, certs, users and services. Basic license,
+# nothing to register. Wave 8: only needs storage and the apiserver.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: eck-operator
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "8"
+spec:
+  project: default
+  source:
+    repoURL: https://helm.elastic.co
+    chart: eck-operator
+    targetRevision: 3.5.0
+    helm:
+      values: |
+        resources:
+          requests: { cpu: 50m, memory: 150Mi }
+          limits: { memory: 512Mi }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: elastic-system
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    # The Elasticsearch CRD alone is ~1MB of schema.
+    syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

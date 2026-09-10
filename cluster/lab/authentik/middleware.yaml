@@ -1,0 +1,34 @@
+# The one Traefik middleware every protected web UI points at:
+#   traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik-forward-auth@kubernetescrd
+# (namespace-name@provider). Traefik asks the embedded outpost whether the
+# request carries a valid session; the outpost answers 200 with identity
+# headers or 302 to the login page. Works cross-namespace only because
+# traefik.yaml sets providers.kubernetesCRD.allowCrossNamespace.
+#
+# The address is the authentik server itself: paths under
+# /outpost.goauthentik.io/ are served by the outpost embedded in it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authentik-forward-auth
+  namespace: authentik
+spec:
+  forwardAuth:
+    address: http://authentik-server.authentik.svc.cluster.local/outpost.goauthentik.io/auth/traefik
+    trustForwardHeader: true
+    # Copied from the outpost's response onto the request that reaches the
+    # app, OVERWRITING anything the client sent -- which is what makes it safe
+    # for pgAdmin to trust X-Authentik-Email as its login.
+    authResponseHeaders:
+      - X-authentik-username
+      - X-authentik-groups
+      - X-authentik-entitlements
+      - X-authentik-email
+      - X-authentik-name
+      - X-authentik-uid
+      - X-authentik-jwt
+      - X-authentik-meta-jwks
+      - X-authentik-meta-outpost
+      - X-authentik-meta-provider
+      - X-authentik-meta-app
+      - X-authentik-meta-version

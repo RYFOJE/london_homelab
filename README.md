@@ -16,7 +16,11 @@ terraform/            VM, LXC resolver, Talos bootstrap, ArgoCD install. Nothing
   secrets.tf          Authentik signing key + Grafana admin (kept in tfstate)
   bootstrap.tf        argo-cd + argocd-apps root Application -> cluster/lab/apps
 cluster/lab/apps/     one ArgoCD Application per platform component (sync-waved)
-cluster/lab/db/       plain manifests the apps reference (CNPG Cluster)
+cluster/lab/db/       plain manifests the apps reference (Authentik's CNPG Cluster)
+cluster/lab/authentik/  forward-auth Middleware + Authentik blueprints (config as code)
+cluster/lab/database/   dev Postgres (CNPG Cluster) + TCP route
+cluster/lab/messaging/  RabbitMQ cluster, management Ingress, AMQP route, PodMonitor
+cluster/lab/elastic/    Elasticsearch, Kibana, their Ingresses
 cluster/lab/observability/dashboards/  Grafana dashboards as code (kustomize -> ConfigMaps)
 scripts/              preflight.ps1 (before apply), verify.ps1 (after)
 ```
@@ -48,7 +52,9 @@ the key named in `ssh_public_key_path`.
 ## Back this up or you cannot rebuild
 
 - `terraform.tfstate` — contains Talos machine secrets, the Authentik
-  signing key and the Grafana admin password. Encrypt it. Never commit it.
+  signing key, the Grafana admin password, the Grafana OIDC client secret,
+  Kibana's anonymous-user password and pgAdmin's bootstrap password.
+  Encrypt it. Never commit it.
 - `kubeconfig` / `talosconfig` (regenerable from state via `terraform output`).
 - Proxmox and Cloudflare API tokens.
 
@@ -57,9 +63,11 @@ the key named in `ssh_public_key_path`.
 - No ClusterIssuer yet: ArgoCD and Authentik are served over plain HTTP.
 - External Secrets is deployed without a `ClusterSecretStore`.
 - No CoreDNS forward for the lab domain: in-cluster clients cannot resolve
-  `*.lab.<domain>` (needed before ArgoCD -> Authentik OIDC).
-- Grafana SSO is wired but commented out in `kube-prometheus-stack.yaml`
-  until an Authentik provider blueprint and the `grafana-oidc` Secret exist.
+  `*.lab.<domain>`. Grafana works around it by calling Authentik's token and
+  userinfo endpoints on the in-cluster Service name; ArgoCD -> Authentik
+  OIDC would need the same trick or a real fix.
+- Elasticsearch has no Prometheus exporter; only the ECK operator's own
+  metrics are scraped from the `elastic` namespaces.
 - etcd metrics are off: they need client certs from `/system/secrets/etcd`
   in a Secret plus `listen-metrics-urls` in the Talos patch. Enable together.
 
@@ -82,6 +90,52 @@ Grafana Alloy, all in the `observability` namespace, waves 15-30.
   Grafana 5Gi / Alertmanager 2Gi. The "Telemetry Pipeline Health"
   dashboard watches the PVCs.
 
+## Dev platform
+
+Everything a personal dev project needs, one namespace each, waves 5-22.
+The Talos VM is sized at 12 GiB for this; `locals.tf` is where that lives.
+
+| Service | In-cluster | From the LAN | Credentials |
+|---|---|---|---|
+| Postgres (CNPG `dev-db`, db `dev`) | `dev-db-rw.database.svc.cluster.local:5432` | `192.168.18.80:5432` | Secret `database/dev-db-app` |
+| pgAdmin | — | `http://pgadmin.lab.ryfoje.com` | Authentik login only |
+| RabbitMQ (AMQP) | `rabbitmq.messaging.svc.cluster.local:5672` | `192.168.18.80:5672` | Secret `messaging/rabbitmq-default-user` |
+| RabbitMQ management | — | `http://rabbitmq.lab.ryfoje.com` | Authentik, then the Secret above |
+| Elasticsearch | `http://elasticsearch-es-http.elastic.svc.cluster.local:9200` | `http://elasticsearch.lab.ryfoje.com` | Secret `elastic/elasticsearch-es-elastic-user`, user `elastic` |
+| Kibana | — | `http://kibana.lab.ryfoje.com` | Authentik login only |
+| Grafana | — | `http://grafana.lab.ryfoje.com` | "Sign in with Authentik", or the break-glass admin |
+
+Reading a password:
+
+```powershell
+kubectl -n database get secret dev-db-app -o jsonpath='{.data.password}' | % { [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }
+```
+
+TCP ports 5432 and 5672 are Traefik entrypoints (`traefik.yaml`) routed by an
+`IngressRouteTCP` beside each service. Traefik runs hostNetwork, so they are
+the real ports on the node IP.
+
+### Authentik in front of things
+
+`cluster/lab/authentik/` holds one Traefik `Middleware` and the blueprints
+that create Authentik's side of it: a domain-level proxy provider (one login
+cookie for `*.lab.ryfoje.com`, no per-app callback route) bound to the
+embedded outpost, plus an OAuth2 provider for Grafana. Blueprints apply
+within a minute of the ConfigMap changing; the worker log says which.
+
+Putting any new web UI behind Authentik is one annotation on its Ingress:
+
+```yaml
+traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik-forward-auth@kubernetescrd
+```
+
+Apps that can trust a header (pgAdmin reads `X-Authentik-Email`) or that can
+auto-login a service account (Kibana's anonymous provider) get real SSO from
+this. Apps that cannot (RabbitMQ) show their own login after Authentik's.
+
+Grafana roles: Authentik groups `grafana-admins` (akadmin is in it) and
+`grafana-editors`; everyone else is a Viewer.
+
 ## Hard-coded in more than one place
 
 `locals.tf` is the source of truth for Terraform, but the GitOps side cannot
@@ -90,6 +144,11 @@ read it. If you change any of these, grep for the old value:
 - node IP `192.168.18.80` — `locals.tf`, `cluster/lab/apps/traefik.yaml`,
   `cluster/lab/apps/kube-prometheus-stack.yaml` (control-plane endpoints)
 - domain `lab.ryfoje.com` — `locals.tf`, `cluster/lab/apps/authentik.yaml`,
-  `cluster/lab/apps/kube-prometheus-stack.yaml` (three ingress hosts + root_url)
-- repo URL — `terraform.tfvars`, `cluster/lab/apps/authentik-db.yaml`,
-  `cluster/lab/apps/observability-dashboards.yaml`
+  `cluster/lab/apps/kube-prometheus-stack.yaml` (ingress hosts, root_url,
+  OIDC URLs), `cluster/lab/apps/pgadmin.yaml`, `cluster/lab/authentik/blueprints/*`,
+  `cluster/lab/messaging/ingress.yaml`, `cluster/lab/elastic/*.yaml`
+- repo URL — `terraform.tfvars`, and every Application whose source is this
+  repo: `authentik-db`, `authentik-config`, `database`, `rabbitmq`, `elastic`,
+  `observability-dashboards` (all in `cluster/lab/apps/`)
+- your Authentik account email — `cluster/lab/apps/pgadmin.yaml` (`env.email`),
+  so the header login lands on pgAdmin's admin account

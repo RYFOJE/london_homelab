@@ -1,0 +1,41 @@
+# Kibana: Authentik-gated (see kibana.yaml for why that is the only login).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kibana
+  namespace: elastic
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: authentik-authentik-forward-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: kibana.lab.ryfoje.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kibana-kb-http
+                port:
+                  number: 5601
+---
+# Elasticsearch API: NOT Authentik-gated. Basic auth with the elastic user.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: elasticsearch
+  namespace: elastic
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: elasticsearch.lab.ryfoje.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: elasticsearch-es-http
+                port:
+                  number: 9200

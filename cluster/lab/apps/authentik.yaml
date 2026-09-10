@@ -43,6 +43,19 @@ spec:
                 secretKeyRef:
                   name: authentik-secret-key
                   key: secret-key
+            # Read by blueprints/grafana.yaml via !Env. Same Terraform value
+            # Grafana sees in its grafana-oidc Secret.
+            - name: GRAFANA_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: authentik-blueprint-env
+                  key: grafana-oidc-client-secret
+
+        # Configuration as code. The ConfigMap comes from cluster/lab/authentik
+        # (authentik-config app, wave 6); the worker applies every *.yaml key.
+        blueprints:
+          configMaps:
+            - authentik-blueprints
 
         server:
           ingress:

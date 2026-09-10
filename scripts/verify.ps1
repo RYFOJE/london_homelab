@@ -226,7 +226,8 @@ $tp = $pods.items | Where-Object { $_.metadata.namespace -eq 'traefik' }
 $tReady = $tp | Where-Object { $_.status.phase -eq 'Running' }
 Report 'traefik running' ($tReady ? 'PASS' : 'FAIL') "$($tReady.Count)/$($tp.Count) pods"
 
-foreach ($port in 80, 443) {
+# 5432/5672 are the Traefik TCP entrypoints for Postgres and AMQP.
+foreach ($port in 80, 443, 5432, 5672) {
     $ok = $false
     try {
         $c = [System.Net.Sockets.TcpClient]::new()
@@ -281,7 +282,9 @@ foreach ($h in $hosts) {
     try {
         $code = Get-HttpStatus -Url "http://$nodeIp/" -HostHeader $h.Host
         # 3xx is a healthy answer: apps that redirect to a login flow are working.
-        Report "$($h.Host)" (($code -lt 400) ? 'PASS' : 'FAIL') "HTTP $code via $($h.Ref)"
+        # 401 too: Elasticsearch demands basic auth on every path, and a
+        # challenge proves the request reached it.
+        Report "$($h.Host)" (($code -lt 400 -or $code -eq 401) ? 'PASS' : 'FAIL') "HTTP $code via $($h.Ref)"
     }
     catch { Report "$($h.Host)" 'FAIL' $_.Exception.Message }
 }
@@ -292,7 +295,7 @@ Section '8. From this machine'
 foreach ($h in $hosts) {
     try {
         $code = Get-HttpStatus -Url "http://$($h.Host)"
-        Report "http://$($h.Host)" (($code -lt 400) ? 'PASS' : 'FAIL') "HTTP $code"
+        Report "http://$($h.Host)" (($code -lt 400 -or $code -eq 401) ? 'PASS' : 'FAIL') "HTTP $code"
     }
     catch {
         # Distinguish "your resolver cannot find it" from "it answered badly".

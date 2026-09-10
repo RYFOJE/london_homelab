@@ -27,7 +27,7 @@ locals {
     vmid   = 120
     ip     = "192.168.18.80"
     cores  = 4
-    memory = 8192
+    memory = 12288
     disk   = 200
   }
 
