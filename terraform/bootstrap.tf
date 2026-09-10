@@ -25,6 +25,18 @@ resource "helm_release" "argocd" {
         "server.insecure" = true
       }
     }
+    server = {
+      ingress = {
+        enabled          = true
+        controller       = "generic"
+        ingressClassName = "traefik"
+        hostname         = "argocd.${local.domain}"
+        path             = "/"
+        pathType         = "Prefix"
+        # tls stays false until a ClusterIssuer exists. HTTP only for now.
+        tls = false
+      }
+    }
   })]
 }
 

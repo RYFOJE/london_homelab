@@ -39,6 +39,15 @@ spec:
             drop: ["ALL"]
             add: ["NET_BIND_SERVICE"]
 
+        # hostNetwork means only one pod can hold :80/:443 at a time, so a
+        # RollingUpdate deadlocks: the new pod stays Pending waiting for the
+        # ports, the old pod never terminates because the new one is not
+        # Ready. Recreate accepts a few seconds of downtime instead -- which
+        # on a single node is what happens either way.
+        updateStrategy:
+          type: Recreate
+          rollingUpdate: null
+
         ports:
           web:
             port: 80
