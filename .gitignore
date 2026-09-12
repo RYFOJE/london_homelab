@@ -7,6 +7,8 @@
 # Real values
 *.tfvars
 !*.tfvars.example
+terraform/backend.hcl
+!terraform/backend.hcl.example
 
 # Cluster credentials
 kubeconfig

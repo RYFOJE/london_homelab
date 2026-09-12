@@ -1,0 +1,15 @@
+# Backend config for `terraform init -backend-config="backend.hcl"`.
+# None of these three values is secret (same reasoning as terraform.tfvars.example)
+# -- they're just chosen at ./scripts/keyvault.ps1 run time, so they can't be
+# literals in versions.tf. The script prints them after it creates the
+# storage account.
+#
+#   cp backend.hcl.example backend.hcl
+#   terraform init -backend-config="backend.hcl"
+#
+# First time migrating an existing local state file, init prompts to copy it
+# into the new backend -- answer yes.
+
+resource_group_name  = "london-homelab"
+storage_account_name = "stryfojelab"
+container_name       = "tfstate"

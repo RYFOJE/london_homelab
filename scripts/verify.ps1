@@ -105,8 +105,13 @@ Write-Host ('=' * 62) -ForegroundColor DarkGray
 if (-not $SkipProxmox) {
     Section '1. Proxmox guests'
     $endpoint = Get-HclValue $tfvars 'pve_endpoint'
-    $token = $env:TF_VAR_pve_api_token
-    if (-not $token) { $token = Get-HclValue $tfvars 'pve_api_token' }
+    # Token is in Key Vault, not tfvars; read it the way Terraform does.
+    $vaultName = Get-HclValue $tfvars 'azure_key_vault_name'
+    $token = $null
+    if ($vaultName -and (Get-Command az -ErrorAction SilentlyContinue)) {
+        $token = & az keyvault secret show --vault-name $vaultName --name pve-api-token --query value -o tsv 2>$null
+        if ($LASTEXITCODE -ne 0) { $token = $null }
+    }
     if ($endpoint -and $token) {
         try {
             $r = Invoke-RestMethod -Uri (($endpoint.TrimEnd('/')) + '/api2/json/cluster/resources?type=vm') `
@@ -123,7 +128,7 @@ if (-not $SkipProxmox) {
         }
         catch { Report 'Proxmox API' 'WARN' $_.Exception.Message }
     }
-    else { Report 'Proxmox API' 'INFO' 'no credentials in tfvars; skipped' }
+    else { Report 'Proxmox API' 'INFO' 'pve-api-token not readable from Key Vault (az login?); skipped' }
 }
 
 # ================================================================ 2. dns

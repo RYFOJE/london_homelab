@@ -1,5 +1,6 @@
-pve_endpoint  = "https://192.168.18.5:8006/"
-pve_api_token = "root@pam!tf=00000000-0000-0000-0000-000000000000"
+# No secret goes in this file. The Proxmox API token lives in Key Vault
+# (pve-api-token, prompted for by ./scripts/keyvault.ps1).
+pve_endpoint = "https://192.168.18.5:8006/"
 
 # Public key injected into the LXC. Must match the key loaded in your
 # SSH agent -- ssh-add -l to check which one that is.
@@ -13,9 +14,11 @@ talos_schematic_id = "REPLACE_WITH_FACTORY_SCHEMATIC_ID"
 
 git_repo_url = "https://github.com/RYFOJE/london_homelab.git"
 
-# Azure Key Vault that holds every lab credential. ./scripts/keyvault.ps1
-# creates it and prints these three values; none of them is secret. Terraform
-# reads the vault through your `az login` session.
+# The Terraform-only vault (NOT the ESO vault every other credential lives
+# in -- that one's name is only in clustersecretstore.yaml).
+# ./scripts/keyvault.ps1 creates both and prints these three values for this
+# one; none of them is secret. Terraform reads it (ESO's own login, the
+# Proxmox token) through your `az login` session.
 azure_subscription_id          = "00000000-0000-0000-0000-000000000000"
-azure_key_vault_name           = "kv-ryfoje-lab"
+azure_key_vault_name           = "kv-ryfoje-tf"
 azure_key_vault_resource_group = "london-homelab"

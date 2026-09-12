@@ -126,9 +126,25 @@ if (-not (Test-Path $tfvarsPath)) {
 }
 Report 'terraform.tfvars' 'PASS'
 
+$backendPath = Join-Path $TerraformDir 'backend.hcl'
+if (-not (Test-Path $backendPath)) {
+    Report 'terraform/backend.hcl' 'FAIL' 'missing -- copy backend.hcl.example, fill in what ./scripts/keyvault.ps1 printed'
+}
+else {
+    Report 'terraform/backend.hcl' 'PASS'
+    $stateAccount = Get-HclValue $backendPath 'storage_account_name'
+    if ($stateAccount -and (Get-Command az -ErrorAction SilentlyContinue)) {
+        & az storage account show -n $stateAccount --only-show-errors *> $null
+        if ($LASTEXITCODE -eq 0) {
+            Report "storage account $stateAccount reachable" 'PASS'
+        }
+        else {
+            Report "storage account $stateAccount reachable" 'FAIL' 'not found, or you lack Storage Blob Data Contributor on it -- ./scripts/keyvault.ps1'
+        }
+    }
+}
+
 $endpoint = Get-HclValue $tfvarsPath 'pve_endpoint'
-$token = $env:TF_VAR_pve_api_token
-if (-not $token) { $token = Get-HclValue $tfvarsPath 'pve_api_token' }
 $templateUrl = Get-HclValue $tfvarsPath 'lxc_template_url'
 $schematic = Get-HclValue $tfvarsPath 'talos_schematic_id'
 $talosVersion = (Get-HclValue $tfvarsPath 'talos_version') ?? '1.14.0'
@@ -137,12 +153,51 @@ $pveNode = Get-HclValue $localsPath 'pve_node'
 $vaultName = Get-HclValue $tfvarsPath 'azure_key_vault_name'
 $subscription = Get-HclValue $tfvarsPath 'azure_subscription_id'
 
-# --------------------------------------------------------- token format
-if ($token -match '^[^@]+@[^!]+![^=]+=[0-9a-fA-F-]{36}$') {
-    Report 'API token format' 'PASS' ($token -replace '=.*', '=<secret>')
+if (Get-HclValue $tfvarsPath 'pve_api_token') {
+    Report 'no pve_api_token in tfvars' 'WARN' 'no longer a variable; it lives in Key Vault now -- delete the line'
+}
+
+# -------------------------------------------------- ssh_public_key_path
+# The agent check above proves SOME key is loaded; this proves the file
+# dns.tf actually reads exists. They are different things: a tfvars pointing
+# at ~/.ssh/id_rsa.pub on a machine that only has an ed25519 key fails in
+# `file(pathexpand(...))` several minutes into the apply, after the state
+# lock is taken.
+$pubKeyPath = Get-HclValue $tfvarsPath 'ssh_public_key_path'
+if (-not $pubKeyPath) {
+    Report 'ssh_public_key_path in tfvars' 'FAIL' 'not set'
 }
 else {
-    Report 'API token format' 'FAIL' 'expected user@realm!tokenid=<uuid>'
+    # pathexpand() handles ~ the same way Terraform does.
+    $expanded = $pubKeyPath -replace '^~', $HOME
+    if (Test-Path $expanded) {
+        Report 'ssh_public_key_path exists' 'PASS' $pubKeyPath
+    }
+    else {
+        $found = Get-ChildItem (Join-Path $HOME '.ssh') -Filter '*.pub' -ErrorAction SilentlyContinue |
+            ForEach-Object { "~/.ssh/$($_.Name)" }
+        $hint = if ($found) { "no file at $expanded -- you have: $($found -join ', ')" } else { "no file at $expanded, and no *.pub in ~/.ssh -- run: ssh-keygen -t ed25519" }
+        Report 'ssh_public_key_path exists' 'FAIL' $hint
+    }
+}
+
+# --------------------------------------------------------- proxmox token
+# Same place Terraform reads it from: the vault, through your az session.
+# The Azure login itself is checked further down; a failure here is the
+# first symptom of that too.
+$token = $null
+if ($vaultName -and (Get-Command az -ErrorAction SilentlyContinue)) {
+    $token = & az keyvault secret show --vault-name $vaultName --name pve-api-token --query value -o tsv 2>$null
+    if ($LASTEXITCODE -ne 0) { $token = $null }
+}
+if ($token -match '^[^@]+@[^!]+![^=]+=[0-9a-fA-F-]{36}$') {
+    Report 'pve-api-token in Key Vault' 'PASS' ($token -replace '=.*', '=<secret>')
+}
+elseif ($token) {
+    Report 'pve-api-token in Key Vault' 'FAIL' 'expected user@realm!tokenid=<uuid> -- ./scripts/keyvault.ps1 -Rotate -Only pve-api-token'
+}
+else {
+    Report 'pve-api-token in Key Vault' 'FAIL' 'not readable: az login, then ./scripts/keyvault.ps1 (prompts for it)'
 }
 
 # ------------------------------------------------------------- pve reach
@@ -255,17 +310,30 @@ foreach ($ip in $ips) {
     }
 }
 
-# -------------------------------------------------------------- key vault
-# Terraform reads the ESO service principal out of the vault with your az
-# session, and ESO then reads everything else. A missing entry fails the
-# apply (Terraform) or parks the secrets app at Degraded (ESO), so check
-# both sets here. The expected names come from the ExternalSecrets in
-# cluster/lab/secrets -- the same list scripts/keyvault.ps1 writes.
+# -------------------------------------------------------------- key vaults
+# Two vaults (scripts/keyvault.ps1 creates both): Terraform reads the ESO
+# service principal's own login and the Proxmox token out of the Terraform
+# vault (tfvars azure_key_vault_name) with your az session; ESO then reads
+# every other credential out of the ESO vault, whose name is only in
+# clustersecretstore.yaml. A missing entry fails the apply (Terraform vault)
+# or parks the secrets app at Degraded (ESO vault), so check both.
+$esDir = Join-Path $TerraformDir '..' 'cluster' 'lab' 'secrets'
+$cssPath = Join-Path $esDir 'clustersecretstore.yaml'
+# YAML, not HCL -- `key: value`, not `key = value` -- so Get-HclValue doesn't fit.
+$esoVaultUrl = if (Test-Path $cssPath) {
+    $m = [regex]::Match((Get-Content $cssPath -Raw), '(?m)^\s*vaultUrl:\s*(\S+)\s*$')
+    if ($m.Success) { $m.Groups[1].Value } else { $null }
+} else { $null }
+$esoVaultName = if ($esoVaultUrl) { ([uri]$esoVaultUrl).Host -replace '\.vault\.azure\.net$', '' } else { $null }
+
 if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
     Report 'Azure CLI on PATH' 'FAIL' 'winget install Microsoft.AzureCLI, then az login'
 }
 elseif (-not $vaultName) {
     Report 'azure_key_vault_name in tfvars' 'FAIL' 'run ./scripts/keyvault.ps1 and paste its output'
+}
+elseif (-not $esoVaultName) {
+    Report 'vaultUrl in clustersecretstore.yaml' 'FAIL' 'missing or unparsable -- run ./scripts/keyvault.ps1 and paste its output'
 }
 else {
     $acct = & az account show -o json 2>$null | ConvertFrom-Json
@@ -277,24 +345,41 @@ else {
         if ($subscription -and $acct.id -ne $subscription) {
             Report 'azure_subscription_id matches az session' 'WARN' "tfvars $subscription, az $($acct.id) -- az account set -s $subscription"
         }
-        $names = & az keyvault secret list --vault-name $vaultName --query '[].name' -o tsv 2>$null
+
+        # ---- Terraform vault: eso-client-id, eso-client-secret, pve-api-token
+        $tfNames = & az keyvault secret list --vault-name $vaultName --query '[].name' -o tsv 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Report "Key Vault $vaultName readable" 'FAIL' 'not found, or you lack Key Vault Secrets Officer/User on it -- ./scripts/keyvault.ps1'
+            Report "Terraform vault $vaultName readable" 'FAIL' 'not found, or you lack Key Vault Secrets Officer on it -- ./scripts/keyvault.ps1'
         }
         else {
-            Report "Key Vault $vaultName readable" 'PASS' "$(@($names).Count) entries"
-            $expected = @('eso-client-id', 'eso-client-secret')
-            $esDir = Join-Path $TerraformDir '..' 'cluster' 'lab' 'secrets'
-            $expected += Get-ChildItem $esDir -Filter '*.yaml' | ForEach-Object {
-                [regex]::Matches((Get-Content $_.FullName -Raw), 'remoteRef:\s*\{\s*key:\s*([A-Za-z0-9-]+)') |
-                ForEach-Object { $_.Groups[1].Value }
-            }
-            $missing = $expected | Sort-Object -Unique | Where-Object { $names -notcontains $_ }
-            if ($missing) {
-                Report 'every expected vault entry exists' 'FAIL' ("missing: " + ($missing -join ', ') + " -- ./scripts/keyvault.ps1")
+            Report "Terraform vault $vaultName readable" 'PASS' "$(@($tfNames).Count) entries"
+            $tfExpected = @('eso-client-id', 'eso-client-secret', 'pve-api-token')
+            $tfMissing = $tfExpected | Where-Object { $tfNames -notcontains $_ }
+            if ($tfMissing) {
+                Report 'every expected Terraform-vault entry exists' 'FAIL' ("missing: " + ($tfMissing -join ', ') + " -- ./scripts/keyvault.ps1")
             }
             else {
-                Report 'every expected vault entry exists' 'PASS' "$(@($expected | Sort-Object -Unique).Count) names"
+                Report 'every expected Terraform-vault entry exists' 'PASS' "$($tfExpected.Count) names"
+            }
+        }
+
+        # ---- ESO vault: everything the ExternalSecrets in cluster/lab/secrets ask for
+        $esoNames = & az keyvault secret list --vault-name $esoVaultName --query '[].name' -o tsv 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Report "ESO vault $esoVaultName readable" 'FAIL' 'not found, or you lack Key Vault Secrets Officer on it -- ./scripts/keyvault.ps1'
+        }
+        else {
+            Report "ESO vault $esoVaultName readable" 'PASS' "$(@($esoNames).Count) entries"
+            $esoExpected = Get-ChildItem $esDir -Filter '*.yaml' | ForEach-Object {
+                [regex]::Matches((Get-Content $_.FullName -Raw), 'remoteRef:\s*\{\s*key:\s*([A-Za-z0-9-]+)') |
+                ForEach-Object { $_.Groups[1].Value }
+            } | Sort-Object -Unique
+            $esoMissing = $esoExpected | Where-Object { $esoNames -notcontains $_ }
+            if ($esoMissing) {
+                Report 'every expected ESO-vault entry exists' 'FAIL' ("missing: " + ($esoMissing -join ', ') + " -- ./scripts/keyvault.ps1")
+            }
+            else {
+                Report 'every expected ESO-vault entry exists' 'PASS' "$(@($esoExpected).Count) names"
             }
         }
     }

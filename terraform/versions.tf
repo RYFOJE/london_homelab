@@ -1,6 +1,18 @@
 terraform {
   required_version = ">= 1.9"
 
+  # Partial config on purpose: the storage account name is chosen at
+  # `scripts/keyvault.ps1` run time (global uniqueness), so it can't be a
+  # literal here. Fill in terraform/backend.hcl (gitignored, not secret --
+  # same reasoning as terraform.tfvars) and run
+  # `terraform init -backend-config=backend.hcl`. use_azuread_auth means
+  # Terraform authenticates with your `az login` session, the same one
+  # secrets.tf reads the Key Vault with; no storage account key anywhere.
+  backend "azurerm" {
+    use_azuread_auth = true
+    key              = "london-homelab.tfstate"
+  }
+
   required_providers {
     proxmox = {
       source = "bpg/proxmox"
