@@ -226,6 +226,28 @@ else {
         $ok = ($s -eq 'Synced' -and $h -eq 'Healthy')
         Report "app $($a.metadata.name)" ($ok ? 'PASS' : 'FAIL') "$s / $h"
     }
+    # Every credential arrives through an ExternalSecret. A Ready=False one
+    # names the vault entry or the auth problem in its message; the app it
+    # feeds only shows a pod stuck in CreateContainerConfigError.
+    $css = Get-KubeJson @('get', 'clustersecretstore', 'azure-keyvault', '-o', 'json')
+    $cssReady = $css.status.conditions | Where-Object { $_.type -eq 'Ready' } | Select-Object -First 1
+    Report 'ClusterSecretStore azure-keyvault' (($cssReady.status -eq 'True') ? 'PASS' : 'FAIL') `
+        ($cssReady ? $cssReady.message : 'not found -- did the secrets app sync?')
+    $ess = Get-KubeJson @('get', 'externalsecrets', '-A', '-o', 'json')
+    $notReady = @($ess.items | Where-Object {
+            ($_.status.conditions | Where-Object { $_.type -eq 'Ready' -and $_.status -eq 'True' }).Count -eq 0
+        })
+    if (-not $ess -or @($ess.items).Count -eq 0) {
+        Report 'ExternalSecrets' 'FAIL' 'none found -- did the secrets app sync?'
+    }
+    elseif ($notReady.Count -gt 0) {
+        foreach ($e in $notReady) {
+            $msg = ($e.status.conditions | Where-Object { $_.type -eq 'Ready' } | Select-Object -First 1).message
+            Report "externalsecret $($e.metadata.namespace)/$($e.metadata.name)" 'FAIL' ($msg ?? 'no Ready condition')
+        }
+    }
+    else { Report 'all ExternalSecrets synced' 'PASS' "$(@($ess.items).Count) total" }
+
     # only the root app tracks git; chart-sourced apps report a chart version
     $root = $apps.items | Where-Object { $_.metadata.name -eq 'root' }
     if ($root) {

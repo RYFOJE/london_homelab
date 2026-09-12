@@ -1,0 +1,89 @@
+# Talos enforces PodSecurity "baseline" on every namespace it does not own.
+# Anything with hostPath, hostNetwork or a root user is rejected under
+# baseline -- silently, no pod ever created. The three namespaces that need
+# more carry the "privileged" labels here; everything else takes the default.
+#
+# argocd is missing on purpose: the ArgoCD chart creates it from Terraform
+# before this app can run.
+
+# hostNetwork + root: Traefik binds :80/:443 in the host netns.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: traefik
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+# hostPath /var/local-path-provisioner.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: local-path-storage
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+---
+# node-exporter (hostPath /proc, /sys, hostNetwork) and Alloy (hostPath
+# /var/log, root).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: observability
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: external-secrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cnpg-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authentik
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: database
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: elastic
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rabbitmq-system
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: messaging
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: keda

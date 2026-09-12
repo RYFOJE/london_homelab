@@ -27,5 +27,5 @@ spec:
     syncOptions: ["CreateNamespace=true", "ServerSideApply=true"]
 ---
 # ClusterIssuers and the lab wildcard Certificate live in cluster/lab/tls
-# (Application "tls", wave 1). The Cloudflare token they need is written by
-# Terraform into this namespace (secrets.tf).
+# (Application "tls", wave 1). The Cloudflare token they need is pulled from
+# Key Vault into this namespace by cluster/lab/secrets/cert-manager.yaml.

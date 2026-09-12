@@ -10,12 +10,12 @@ for the layout and `DEPLOY.md` for the from-zero runbook.
 empty Proxmox host. Whenever a change alters any of these, update it in the
 same commit:
 
-- a new manual/click-ops step (Proxmox, router, Cloudflare, GitHub, Authentik)
-- a new or renamed Terraform variable, output, Secret or namespace
+- a new manual/click-ops step (Proxmox, router, Cloudflare, Azure, GitHub, Authentik)
+- a new or renamed Terraform variable, output, Key Vault entry or namespace
 - a new service with a URL, credential location or client endpoint
 - a change to the sync-wave order that affects what to wait for
-- anything in `scripts/preflight.ps1` or `scripts/verify.ps1` that changes
-  what they check or how they are invoked
+- anything in `scripts/preflight.ps1`, `scripts/verify.ps1` or
+  `scripts/keyvault.ps1` that changes what they check or how they are invoked
 - a workaround for a hang, timeout or known bug in the apply path
 
 If you touch `README.md` sections "Run order", "Manual steps", "Dev platform"
@@ -27,8 +27,10 @@ same thing. When in doubt, DEPLOY.md is the one the user follows.
 - One ArgoCD `Application` per component in `cluster/lab/apps/`, sync-waved.
   Plain manifests live in a sibling directory and get their own Application
   (see `authentik-config`, `database`, `rabbitmq`, `elastic`).
-- Credentials never go in git. Operator-generated Secrets (CNPG, RabbitMQ,
-  ECK) or Terraform `random_password` in `terraform/secrets.tf`.
+- Credentials never go in git and never in Terraform. Operator-generated
+  Secrets (CNPG, RabbitMQ, ECK) or Azure Key Vault via External Secrets: an
+  entry in `scripts/keyvault.ps1`'s catalog, an ExternalSecret in
+  `cluster/lab/secrets/`, and a row in DEPLOY.md "Secrets" -- all three.
 - Pin every chart, git tag and image. Comment *why* a value is set.
 - New web UI behind Authentik: the forward-auth annotation, not a new
   provider, unless the app speaks OIDC natively (then a blueprint in

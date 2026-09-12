@@ -13,6 +13,15 @@ provider "proxmox" {
 
 provider "talos" {}
 
+# Authenticates as you, through the Azure CLI (`az login`) -- the provider's
+# default when no client credentials are set. Only reads: the two Key Vault
+# data sources in secrets.tf. Nothing in Azure is created or changed here;
+# scripts/keyvault.ps1 does that, once, by hand.
+provider "azurerm" {
+  subscription_id = var.azure_subscription_id
+  features {}
+}
+
 provider "kubernetes" {
   host                   = talos_cluster_kubeconfig.this.kubernetes_client_configuration.host
   client_certificate     = base64decode(talos_cluster_kubeconfig.this.kubernetes_client_configuration.client_certificate)

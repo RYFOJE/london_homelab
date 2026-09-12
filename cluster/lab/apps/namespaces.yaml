@@ -1,0 +1,30 @@
+# Every namespace the lab uses, with its Pod Security labels, in one place.
+# Wave -20: first of all, because the secrets app (-6) drops ExternalSecrets
+# into most of them and an ExternalSecret whose namespace does not exist is a
+# sync error, not a wait. Before this app existed Terraform created six of
+# these so it had somewhere to put Secrets; now Terraform creates none.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: namespaces
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/RYFOJE/london_homelab.git
+    targetRevision: HEAD
+    path: cluster/lab/namespaces
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: false, selfHeal: true }
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }
+---
+# prune: false is deliberate. Pruning a Namespace deletes everything inside
+# it; removing a line from namespaces.yaml must never be able to do that.
+# Delete a namespace by hand when you mean it.

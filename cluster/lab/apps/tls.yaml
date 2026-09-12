@@ -1,7 +1,7 @@
 # ClusterIssuers + the lab wildcard Certificate. Wave 1: cert-manager (-5)
 # owns the CRDs, and the Certificate lands in the traefik namespace, which
-# Traefik (0) creates. Terraform writes the Cloudflare token Secret that the
-# issuers reference (secrets.tf).
+# Traefik (0) creates. The Cloudflare token Secret the issuers reference is
+# pulled from Key Vault by the secrets app (-6).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

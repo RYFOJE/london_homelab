@@ -4,9 +4,10 @@
     Print every service credential the cluster holds, decoded.
 
 .DESCRIPTION
-    Reads the Secrets that operators and Terraform wrote and prints them as
-    a table plus ready-to-paste connection strings. Nothing here is stored
-    anywhere else: lose the cluster and these change.
+    Reads the Secrets in the cluster and prints them as a table plus
+    ready-to-paste connection strings. Operator-generated ones (Postgres,
+    RabbitMQ, Elasticsearch, ArgoCD admin) change on every rebuild; the rest
+    are copies of Azure Key Vault entries and survive it.
 
     Not listed: the Authentik admin (akadmin) -- you set that in the
     initial-setup flow and it lives only in Authentik's database.

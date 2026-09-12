@@ -3,8 +3,8 @@
 # DNS-01 writes _acme-challenge.lab.ryfoje.com as a TXT record in the PUBLIC
 # zone and deletes it again. The A records stay private in dnsmasq.
 #
-# The token Secret is written by Terraform (secrets.tf) from
-# var.cloudflare_api_token. cert-manager checks propagation itself before
+# The token Secret is pulled from Key Vault by cluster/lab/secrets/
+# cert-manager.yaml. cert-manager checks propagation itself before
 # asking Let's Encrypt to validate, so a bad token shows up as a Challenge
 # error and never counts against the failed-validation rate limit.
 apiVersion: cert-manager.io/v1

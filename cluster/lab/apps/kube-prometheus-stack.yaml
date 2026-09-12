@@ -120,7 +120,7 @@ spec:
             pathType: Prefix
 
         # hostPath /proc + /sys + hostNetwork: needs the PSA "privileged"
-        # label on the namespace (managedNamespaceMetadata below).
+        # label on the namespace (cluster/lab/namespaces).
         prometheus-node-exporter:
           hostRootFsMount:
             enabled: true
@@ -135,15 +135,16 @@ spec:
           enabled: true
           defaultDashboardsTimezone: browser
 
-          # Local admin written by Terraform (secrets.tf), same pattern as
-          # Authentik's signing key. Stays enabled forever as break-glass.
+          # Local admin from Key Vault (cluster/lab/secrets/observability.yaml).
+          # Stays enabled forever as break-glass.
           admin:
             existingSecret: grafana-admin
             userKey: admin-user
             passwordKey: admin-password
 
-          # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / _SECRET, written by secrets.tf.
-          # The matching Authentik provider is cluster/lab/authentik/blueprints/grafana.yaml.
+          # GF_AUTH_GENERIC_OAUTH_CLIENT_ID / _SECRET, from Key Vault
+          # (cluster/lab/secrets/observability.yaml). The matching Authentik
+          # provider is cluster/lab/authentik/blueprints/grafana.yaml.
           envFromSecret: grafana-oidc
 
           persistence:
@@ -331,16 +332,8 @@ spec:
       # The CRDs blow past the 262144-byte last-applied-configuration
       # annotation limit. Without SSA: "metadata.annotations: Too long".
       - ServerSideApply=true
-    # Talos enforces PodSecurity "baseline" on every namespace it does not
-    # own. node-exporter (hostPath /proc, /sys, hostNetwork) and Alloy
-    # (hostPath /var/log) are both rejected under baseline -- silently, no
-    # pod ever created. secrets.tf sets the same labels so ordering never
-    # matters.
-    managedNamespaceMetadata:
-      labels:
-        pod-security.kubernetes.io/enforce: privileged
-        pod-security.kubernetes.io/audit: privileged
-        pod-security.kubernetes.io/warn: privileged
+    # The namespace's PodSecurity "privileged" labels (node-exporter and
+    # Alloy need them) live in cluster/lab/namespaces, wave -20.
     retry:
       limit: 5
       backoff: { duration: 30s, factor: 2, maxDuration: 5m }

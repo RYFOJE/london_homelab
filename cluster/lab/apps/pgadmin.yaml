@@ -20,8 +20,8 @@ spec:
       values: |
         # The bootstrap admin. Set the email to YOUR Authentik account's email
         # and the header login lands on this admin account instead of
-        # auto-creating a second, non-admin user. Password is Terraform's
-        # (secrets.tf) and nobody ever types it.
+        # auto-creating a second, non-admin user. Password comes from Key
+        # Vault (cluster/lab/secrets/database.yaml) and nobody ever types it.
         existingSecret: pgadmin-admin
         secretKeys:
           pgadminPasswordKey: password

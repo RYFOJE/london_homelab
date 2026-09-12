@@ -2,7 +2,7 @@
 # password to Secret "elasticsearch-es-elastic-user":
 #   kubectl -n elastic get secret elasticsearch-es-elastic-user -o jsonpath='{.data.elastic}' | base64 -d
 # In-cluster: http://elasticsearch-es-http.elastic.svc.cluster.local:9200
-# LAN:        http://elasticsearch.lab.ryfoje.com  (basic auth, no Authentik --
+# LAN:        https://elasticsearch.lab.ryfoje.com (basic auth, no Authentik --
 #             API clients cannot follow a login redirect)
 apiVersion: elasticsearch.k8s.elastic.co/v1
 kind: Elasticsearch
@@ -21,7 +21,7 @@ spec:
         disabled: true
 
   # Kibana's anonymous provider signs in as this file-realm user. The Secret
-  # (username/password/roles) is written by Terraform (secrets.tf).
+  # (username/password/roles) comes from Key Vault (cluster/lab/secrets).
   auth:
     fileRealm:
       - secretName: kibana-anonymous

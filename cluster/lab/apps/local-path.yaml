@@ -27,8 +27,5 @@ spec:
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: ["CreateNamespace=true"]
-    # Talos enforces PodSecurity "baseline" on every namespace by default.
-    # This workload cannot run under it, so exempt just this namespace.
-    managedNamespaceMetadata:
-      labels:
-        pod-security.kubernetes.io/enforce: privileged
+    # The namespace's PodSecurity "privileged" label (hostPath) is set in
+    # cluster/lab/namespaces, wave -20.

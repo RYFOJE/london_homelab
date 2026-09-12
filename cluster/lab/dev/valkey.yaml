@@ -1,8 +1,8 @@
 # Valkey (Redis-compatible) for sessions, caching, rate limiting. Plain
 # manifests: the only maintained charts are Bitnami's, and the repo already
-# learned that lesson (cloudnative-pg.yaml). Password comes from Terraform
-# (Secret dev/valkey-auth, secrets.tf) because :6379 is also exposed on the
-# LAN through Traefik (see ingressroute-tcp.yaml).
+# learned that lesson (cloudnative-pg.yaml). Password comes from Key Vault
+# (Secret dev/valkey-auth, cluster/lab/secrets/dev.yaml) because :6379 is
+# also exposed on the LAN through Traefik (see ingressroute-tcp.yaml).
 #
 # In-cluster: valkey.dev.svc.cluster.local:6379   LAN: 192.168.18.80:6379
 apiVersion: v1

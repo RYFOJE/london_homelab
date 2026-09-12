@@ -11,8 +11,11 @@ lxc_template_url = "http://download.proxmox.com/images/system/debian-13-standard
 # POST files/schematic.yaml to https://factory.talos.dev/schematics
 talos_schematic_id = "REPLACE_WITH_FACTORY_SCHEMATIC_ID"
 
-git_repo_url = "https://github.com/ryfoje2/london_homelab.git"
+git_repo_url = "https://github.com/RYFOJE/london_homelab.git"
 
-# Cloudflare -> My Profile -> API Tokens -> "Edit zone DNS" template, scoped
-# to the zone above lab.<domain>. cert-manager uses it for DNS-01 wildcard certs.
-cloudflare_api_token = "REPLACE_WITH_CLOUDFLARE_TOKEN"
+# Azure Key Vault that holds every lab credential. ./scripts/keyvault.ps1
+# creates it and prints these three values; none of them is secret. Terraform
+# reads the vault through your `az login` session.
+azure_subscription_id          = "00000000-0000-0000-0000-000000000000"
+azure_key_vault_name           = "kv-ryfoje-lab"
+azure_key_vault_resource_group = "london-homelab"

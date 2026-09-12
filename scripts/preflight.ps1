@@ -5,9 +5,10 @@
 
 .DESCRIPTION
     Verifies every external dependency before you burn an apply: SSH agent,
-    Proxmox token and permissions, node name, template and image URLs, and
-    IP/VMID collisions. Each of these otherwise fails midway through an
-    apply with an error that points somewhere unhelpful.
+    Proxmox token and permissions, node name, template and image URLs,
+    IP/VMID collisions, and the Azure Key Vault every credential comes from.
+    Each of these otherwise fails midway through an apply with an error that
+    points somewhere unhelpful.
 
 .PARAMETER FixAgent
     Start the OpenSSH Authentication Agent service and add your key.
@@ -133,6 +134,8 @@ $schematic = Get-HclValue $tfvarsPath 'talos_schematic_id'
 $talosVersion = (Get-HclValue $tfvarsPath 'talos_version') ?? '1.14.0'
 
 $pveNode = Get-HclValue $localsPath 'pve_node'
+$vaultName = Get-HclValue $tfvarsPath 'azure_key_vault_name'
+$subscription = Get-HclValue $tfvarsPath 'azure_subscription_id'
 
 # --------------------------------------------------------- token format
 if ($token -match '^[^@]+@[^!]+![^=]+=[0-9a-fA-F-]{36}$') {
@@ -249,6 +252,51 @@ foreach ($ip in $ips) {
     }
     else {
         Report "IP $ip is free" 'PASS'
+    }
+}
+
+# -------------------------------------------------------------- key vault
+# Terraform reads the ESO service principal out of the vault with your az
+# session, and ESO then reads everything else. A missing entry fails the
+# apply (Terraform) or parks the secrets app at Degraded (ESO), so check
+# both sets here. The expected names come from the ExternalSecrets in
+# cluster/lab/secrets -- the same list scripts/keyvault.ps1 writes.
+if (-not (Get-Command az -ErrorAction SilentlyContinue)) {
+    Report 'Azure CLI on PATH' 'FAIL' 'winget install Microsoft.AzureCLI, then az login'
+}
+elseif (-not $vaultName) {
+    Report 'azure_key_vault_name in tfvars' 'FAIL' 'run ./scripts/keyvault.ps1 and paste its output'
+}
+else {
+    $acct = & az account show -o json 2>$null | ConvertFrom-Json
+    if (-not $acct) {
+        Report 'Azure login' 'FAIL' 'run: az login'
+    }
+    else {
+        Report 'Azure login' 'PASS' "$($acct.user.name) / $($acct.name)"
+        if ($subscription -and $acct.id -ne $subscription) {
+            Report 'azure_subscription_id matches az session' 'WARN' "tfvars $subscription, az $($acct.id) -- az account set -s $subscription"
+        }
+        $names = & az keyvault secret list --vault-name $vaultName --query '[].name' -o tsv 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Report "Key Vault $vaultName readable" 'FAIL' 'not found, or you lack Key Vault Secrets Officer/User on it -- ./scripts/keyvault.ps1'
+        }
+        else {
+            Report "Key Vault $vaultName readable" 'PASS' "$(@($names).Count) entries"
+            $expected = @('eso-client-id', 'eso-client-secret')
+            $esDir = Join-Path $TerraformDir '..' 'cluster' 'lab' 'secrets'
+            $expected += Get-ChildItem $esDir -Filter '*.yaml' | ForEach-Object {
+                [regex]::Matches((Get-Content $_.FullName -Raw), 'remoteRef:\s*\{\s*key:\s*([A-Za-z0-9-]+)') |
+                ForEach-Object { $_.Groups[1].Value }
+            }
+            $missing = $expected | Sort-Object -Unique | Where-Object { $names -notcontains $_ }
+            if ($missing) {
+                Report 'every expected vault entry exists' 'FAIL' ("missing: " + ($missing -join ', ') + " -- ./scripts/keyvault.ps1")
+            }
+            else {
+                Report 'every expected vault entry exists' 'PASS' "$(@($expected | Sort-Object -Unique).Count) names"
+            }
+        }
     }
 }
 

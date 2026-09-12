@@ -4,7 +4,8 @@ Every step, click-ops and CLI, to go from an empty Proxmox host to the full
 lab: Talos, ArgoCD, Authentik, observability, and the dev platform (Postgres,
 pgAdmin, RabbitMQ, Elasticsearch, Kibana, Valkey, Mailpit, KEDA). Read top
 to bottom the first time.
-The **Rebuild** and **Change** sections at the end cover the day-two cases.
+The **Rebuild**, **Migrating** and **Change** sections at the end cover the
+day-two cases; **Secrets** is the catalog of every credential.
 
 Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
 
@@ -22,6 +23,7 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
 | An SSH keypair | `ssh-keygen -t ed25519` |
 | This repo, public, on GitHub | ArgoCD clones it anonymously at bootstrap |
 | A domain you control on Cloudflare (`ryfoje.com`) | cert-manager writes DNS-01 challenge records there for the `*.lab.ryfoje.com` wildcard |
+| An Azure subscription and the Azure CLI | every credential lives in a Key Vault (`winget install Microsoft.AzureCLI`) |
 
 ---
 
@@ -51,11 +53,11 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
    **Edit zone DNS** template.
 2. Permissions: `Zone / DNS / Edit` and `Zone / Zone / Read`.
    Zone Resources: Include → Specific zone → `ryfoje.com`.
-3. Continue to summary → Create Token. Copy it now; it is shown once. It goes
-   in tfvars as `cloudflare_api_token` (step 2). Terraform writes it into the
-   cluster; cert-manager uses it to publish `_acme-challenge.lab.ryfoje.com`
-   TXT records for a minute during each issuance. No A record is ever
-   published; the lab IPs stay in dnsmasq.
+3. Continue to summary → Create Token. Copy it now; it is shown once. Step
+   1d's script asks for it and stores it in Key Vault; External Secrets
+   copies it into the cluster, and cert-manager uses it to publish
+   `_acme-challenge.lab.ryfoje.com` TXT records for a minute during each
+   issuance. No A record is ever published; the lab IPs stay in dnsmasq.
 
 ---
 
@@ -72,6 +74,31 @@ Time budget: about 1 hour of hands-on work, then 30-45 minutes of waiting.
 3. Branch protection on `main` is optional. If you add it, require the CI
    checks and allow the Renovate app to bypass PR review, or automerge
    never fires.
+
+## 1d. Azure Key Vault (scripted)
+
+Every credential the lab uses -- the Cloudflare token, Authentik's signing
+key, the Grafana admin, every OIDC client secret, Valkey's password -- lives
+in one Key Vault. External Secrets Operator copies them into the cluster;
+Terraform reads exactly two entries (the operator's own login). The full
+list is in [Secrets](#secrets) below.
+
+```powershell
+az login
+./scripts/keyvault.ps1
+```
+
+The script creates resource group `london-homelab`, vault `kv-ryfoje-lab`
+(RBAC mode, `uksouth`), a service principal with read-only access for the
+operator, and every catalog entry: generated where it can be, and a prompt
+for the Cloudflare token from step 1b. It is idempotent -- existing entries
+are kept -- and prints three tfvars lines plus the `tenantId`/`vaultUrl` it
+ended up with. Vault names are global: if `kv-ryfoje-lab` is taken, pass
+`-VaultName <other>` and put the same name in tfvars and in
+`cluster/lab/secrets/clustersecretstore.yaml`.
+
+"InteractionRequired" from the script means the Azure CLI session has a
+stale Graph token: `az login` again.
 
 ## 2. Workstation setup
 
@@ -91,9 +118,13 @@ Fill in `terraform/terraform.tfvars`:
 | `lxc_template_url` | from step 1.3 |
 | `talos_schematic_id` | leave the placeholder; preflight generates it |
 | `git_repo_url` | HTTPS URL of your public copy of this repo |
-| `cloudflare_api_token` | from step 1b |
+| `azure_subscription_id` | printed by `keyvault.ps1` (`az account show --query id -o tsv`) |
+| `azure_key_vault_name` | printed by `keyvault.ps1`; `kv-ryfoje-lab` unless you changed it |
+| `azure_key_vault_resource_group` | printed by `keyvault.ps1`; `london-homelab` unless you changed it |
 
-`terraform.tfvars` is gitignored. It holds the API token; never commit it.
+`terraform.tfvars` is gitignored. It holds the Proxmox token; never commit it.
+No other secret is in it: Terraform reads the Key Vault through your
+`az login` session.
 
 Load your key into the SSH agent (the Proxmox provider and the dnsmasq
 provisioner both authenticate through it):
@@ -103,12 +134,14 @@ ssh-add ~/.ssh/id_ed25519
 ssh-add -l
 ```
 
-Two edits in the repo before the first push:
+Three edits in the repo before the first push:
 
 1. `cluster/lab/apps/pgadmin.yaml` → `env.email`: the email you will give your
    Authentik admin in step 6. They must match, or pgAdmin creates a second
    non-admin user for you.
-2. Anything under "Hard-coded in more than one place" in `README.md` if your
+2. `cluster/lab/secrets/clustersecretstore.yaml` → `tenantId` and `vaultUrl`
+   must be what `keyvault.ps1` printed.
+3. Anything under "Hard-coded in more than one place" in `README.md` if your
    node IP, domain or repo URL differ from the defaults.
 
 Commit and push. ArgoCD deploys whatever `HEAD` is when it first syncs.
@@ -131,9 +164,11 @@ It checks, in order: Terraform on PATH, the SSH agent service (re-run
 elevated with `-FixAgent` if it is stopped), your key loaded, tfvars present,
 token format, Proxmox API auth and node name, root SSH to the host, the LXC
 template URL, the Talos schematic (generated and written into tfvars if the
-placeholder is still there, then the image URL is HEAD-checked), and VMID/IP
-collisions with existing guests. Fix every FAIL before continuing; each one
-otherwise dies mid-apply with a misleading error.
+placeholder is still there, then the image URL is HEAD-checked), the Azure
+login and that the Key Vault holds every entry the ExternalSecrets in
+`cluster/lab/secrets/` ask for, and VMID/IP collisions with existing guests.
+Fix every FAIL before continuing; each one otherwise dies mid-apply with a
+misleading error.
 
 ---
 
@@ -147,8 +182,10 @@ terraform apply
 
 Read the plan. On a fresh host it creates: the dnsmasq LXC (110), the Talos
 image download, the Talos VM (120), machine config + bootstrap, an apiserver
-wait gate, four namespaces and six Secrets, ArgoCD, and the root
-Application. Type `yes`. Expect 10-15 minutes.
+wait gate, ArgoCD, one Secret (`argocd/azure-keyvault-creds`, the operator's
+Key Vault login, read from the vault at plan time), and the root
+Application. Nothing else in the cluster is Terraform's. Type `yes`. Expect
+10-15 minutes.
 
 Known slowness: with the guest agent enabled the Proxmox provider used to sit
 on `Refreshing state...` for up to 15 minutes. That wait is now gated off by
@@ -165,14 +202,12 @@ they mean:
   apiserver gate after memory, cores or machine-config changes, so this
   should not recur; if it does, wait for `kubectl get nodes` to show Ready
   and run `terraform apply -refresh=false` again.
-- `namespaces "<name>" already exists`: ArgoCD created it first (it has
-  `CreateNamespace=true`), or the namespace predates Terraform managing it
-  (`cert-manager` on clusters built before the TLS change). Adopt it, then
-  apply again. The resource name uses an underscore, the namespace a dash:
-
-  ```powershell
-  terraform import kubernetes_namespace_v1.cert_manager cert-manager
-  ```
+- `building account: ... AzureCLI` / `InteractionRequired` from the azurerm
+  provider during plan: the `az login` session expired. Log in again and
+  re-run; nothing was changed.
+- `A resource with the ID ... KeyVault ... was not found` / `Forbidden` on
+  `data.azurerm_key_vault_secret`: wrong vault name in tfvars, or your
+  account lost its role on the vault. `./scripts/keyvault.ps1` fixes both.
 
 When it finishes:
 
@@ -213,6 +248,20 @@ First sync takes 20-30 minutes: Elasticsearch, Kibana and the RabbitMQ
 operator are large images. `elastic`, `rabbitmq`, `pgadmin` and `authentik`
 retry a few times until their dependencies land; the `retry` block on each
 Application is doing that on purpose.
+
+The first apps to watch are `namespaces`, `external-secrets` and `secrets`
+(waves -20, -8, -6). If `secrets` sits at Degraded, nothing after it will
+start; the reason is in the ExternalSecret's status:
+
+```powershell
+kubectl get externalsecrets -A
+kubectl -n authentik describe externalsecret authentik-secret-key
+```
+
+"SecretSyncedError ... 403" is the service principal lacking access (re-run
+`keyvault.ps1`); "not found" is a vault entry missing (same fix); an auth
+error against `login.microsoftonline.com` is a wrong `tenantId` in
+`clustersecretstore.yaml`.
 
 When `authentik` is Healthy:
 
@@ -273,7 +322,7 @@ function Get-K8sSecret($ns, $name, $key) {
 | `https://argocd.lab.ryfoje.com` → Log in via Authentik | You land as admin (group `argocd-admins`). Break-glass: user `admin`, `./scripts/credentials.ps1 -Only argocd` |
 | `https://mailpit.lab.ryfoje.com` | Authentik page once, then the inbox. Send a test: `Send-MailMessage -SmtpServer 192.168.18.80 -Port 1025 -From a@b -To c@d -Subject hi -Body hi` |
 | `redis-cli -h 192.168.18.80 -a <pw> ping` | `PONG`; password from `./scripts/credentials.ps1 -Only valkey` |
-| `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `terraform output -raw grafana_admin_password` |
+| `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `./scripts/credentials.ps1 -Only grafana` |
 | `https://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
 | `https://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
 | `https://rabbitmq.lab.ryfoje.com` | Authentik page, then RabbitMQ's own login: `Get-K8sSecret messaging rabbitmq-default-user username` / `password` |
@@ -290,19 +339,57 @@ table.
 
 ## 8. Back up what cannot be regenerated
 
-- `terraform/terraform.tfstate` and `.backup`: Talos machine secrets,
-  Authentik signing key, Grafana admin + OIDC secret, Kibana anonymous
-  password, pgAdmin bootstrap password. Encrypt, store off this machine.
-  Lose it and the next apply builds a *new* cluster with new identities.
-- The Proxmox API token and Cloudflare token.
+- The Key Vault is the credential store, and Azure keeps it: soft-delete
+  is on, so a deleted vault (or entry) is recoverable for 90 days with
+  `az keyvault recover`. Nothing to copy anywhere.
+- `terraform/terraform.tfstate` and `.backup`: Talos machine secrets, plus a
+  plain-text copy of the operator's Key Vault login (the data source result).
+  Encrypt, store off this machine. Lose it and the next apply builds a *new*
+  cluster -- but with the *same* passwords, because those are in the vault.
+- The Proxmox API token. (The Cloudflare token is in the vault.)
 - `~/.kube/config` and `~/.talos/config` regenerate from state via
   `terraform output`, so they do not need separate backups.
 
 ---
 
+## Secrets
+
+Everything the lab authenticates with, and where each value comes from.
+Three files are the same list: this table, the catalog in
+`scripts/keyvault.ps1` (writes the vault), and `cluster/lab/secrets/*.yaml`
+(one ExternalSecret per cluster Secret). Adding a credential means all three.
+
+| Key Vault entry | Cluster Secret (namespace/name → keys) | Read by | Origin |
+|---|---|---|---|
+| `eso-client-id`, `eso-client-secret` | `argocd/azure-keyvault-creds` → `client-id`, `client-secret` | External Secrets Operator (`ClusterSecretStore azure-keyvault`) | service principal `london-homelab-external-secrets`; **written by Terraform**, the only Secret it owns |
+| `cloudflare-api-token` | `cert-manager/cloudflare-api-token` → `api-token` | both ClusterIssuers (`cluster/lab/tls`) | **prompted**: Cloudflare token from step 1b |
+| `authentik-secret-key` | `authentik/authentik-secret-key` → `secret-key` | Authentik (`AUTHENTIK_SECRET_KEY`); signs sessions and user IDs -- never rotate casually | generated, 64 |
+| `grafana-admin-password` | `observability/grafana-admin` → `admin-user`=`admin`, `admin-password` | Grafana break-glass login | generated, 32 |
+| `grafana-oidc-client-secret` | `observability/grafana-oidc` → `GF_AUTH_GENERIC_OAUTH_CLIENT_ID`=`grafana`, `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`; and `authentik/authentik-blueprint-env` → `grafana-oidc-client-secret` | Grafana (envFromSecret) and the Authentik blueprint (`!Env`) -- one value, both sides | generated, 64 |
+| `argocd-oidc-client-secret` | `argocd/argocd-oidc` → `oidc.clientSecret` (labelled `part-of=argocd`); and `authentik/authentik-blueprint-env` → `argocd-oidc-client-secret` | ArgoCD `oidc.config` and the Authentik blueprint | generated, 64 |
+| `kibana-anonymous-password` | `elastic/kibana-anonymous` (basic-auth) → `username`=`kibana-anon`, `password`, `roles`=`superuser` | ECK file realm + Kibana anonymous provider | generated, 32 |
+| `pgadmin-admin-password` | `database/pgadmin-admin` → `password` | pgAdmin bootstrap admin (never typed) | generated, 32 |
+| `valkey-password` | `dev/valkey-auth` → `password` | Valkey `--requirepass`; LAN-exposed on :6379 | generated, 32 |
+
+Not in the vault, and not in git either -- generated in-cluster by their
+operators, so they change on every rebuild: `authentik/authentik-db-app` and
+`database/dev-db-app` (CNPG), `messaging/rabbitmq-default-user` (RabbitMQ),
+`elastic/elasticsearch-es-elastic-user` (ECK), `argocd/argocd-initial-admin-secret`
+(ArgoCD), `traefik/lab-wildcard-tls` and the ACME account keys (cert-manager).
+`./scripts/credentials.ps1` prints all of them decoded.
+
+ExternalSecrets refresh from the vault every hour. To pick up a change now:
+
+```powershell
+kubectl -n dev annotate externalsecret valkey-auth force-sync=$(Get-Date -UFormat %s) --overwrite
+```
+
+---
+
 ## Rebuild (disposable by design)
 
-Data does not survive this. Everything in git and tfstate does.
+Data does not survive this. Everything in git, tfstate and the Key Vault
+does -- so every password comes back unchanged.
 
 ```powershell
 cd terraform
@@ -316,6 +403,52 @@ cd ..
 
 Then step 6 (Authentik initial setup again: its database was on the VM).
 Router DNS does not change; the LXC gets the same IP.
+
+## Migrating an existing cluster to Key Vault
+
+For a cluster built when Terraform still generated the passwords. The point
+of the order below is that no password changes and nothing restarts.
+
+1. `az login`, then copy the live values into a new vault:
+
+   ```powershell
+   ./scripts/keyvault.ps1 -FromCluster
+   ```
+
+   (`-FromCluster` reads the nine existing Secrets through kubectl; the
+   Cloudflare token comes from the cluster too, so no prompt.)
+2. Put the three `azure_*` values it printed in `terraform.tfvars`, drop
+   `cloudflare_api_token` from it, and make sure
+   `cluster/lab/secrets/clustersecretstore.yaml` has the printed
+   `tenantId`/`vaultUrl`. Commit and push.
+3. ArgoCD picks the push up within ~3 minutes: `external-secrets` upgrades
+   (its old v1beta1 CRDs are empty, so the CRD update just goes through),
+   `namespaces` adopts the namespaces Terraform created, `secrets` applies
+   the ExternalSecrets -- which go **Degraded with "secret already exists,
+   not owned"**. Expected: the old Terraform-written Secrets are in the way.
+4. Hand them over. Terraform first, so it forgets them instead of deleting
+   them (`terraform/removed.tf` does that), then delete the old copies so
+   ESO can recreate them with the same values:
+
+   ```powershell
+   cd terraform; terraform init; terraform apply; cd ..
+   ```
+
+   ```powershell
+   kubectl -n authentik delete secret authentik-secret-key authentik-blueprint-env
+   kubectl -n observability delete secret grafana-admin grafana-oidc
+   kubectl -n elastic delete secret kibana-anonymous
+   kubectl -n database delete secret pgadmin-admin
+   kubectl -n cert-manager delete secret cloudflare-api-token
+   kubectl -n argocd delete secret argocd-oidc
+   kubectl -n dev delete secret valkey-auth
+   ```
+
+   ESO recreates each within a minute. Running pods never notice: they read
+   env vars at start, and the values are identical. ArgoCD's OIDC login is
+   the one live reader and is back as soon as `argocd/argocd-oidc` is.
+5. `./scripts/verify.ps1` -- section 6 lists every ExternalSecret. Then
+   delete `terraform/removed.tf` and commit; it was a one-shot.
 
 ## Change (day two)
 
@@ -340,6 +473,16 @@ Router DNS does not change; the LXC gets the same IP.
   Machine-config changes (sysctls, nameservers) apply live.
 - **New web UI behind Authentik**: one Ingress annotation, see README
   "Authentik in front of things".
+- **New credential**: add it to the catalog in `scripts/keyvault.ps1` and run
+  the script (existing entries are untouched), add an ExternalSecret under
+  `cluster/lab/secrets/`, add the row to "Secrets" above. Never a
+  `random_password` in Terraform, never a value in git.
+- **Rotating a credential**: `./scripts/keyvault.ps1 -Rotate -Only <name>`,
+  force-sync the ExternalSecret (command under "Secrets") or wait an hour,
+  then restart the consumer -- `kubectl -n <ns> rollout restart deploy/<x>`.
+  Values used on two sides (the OIDC client secrets) update both Secrets
+  from the one vault entry; restart both consumers. Never rotate
+  `authentik-secret-key` on a cluster you want to keep logging in to.
 - **A pushed fix never arrives, root app stuck `OutOfSync / Progressing`**:
   root syncs children in wave order and a running sync waits for each wave
   to be Healthy before touching the next. If the thing that is unhealthy can

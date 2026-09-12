@@ -1,6 +1,6 @@
 # Plain manifests for the dev namespace: Valkey and the LAN TCP routes for
-# Valkey and Mailpit's SMTP. Wave 12 alongside mailpit. Terraform creates
-# the namespace and the valkey-auth Secret (secrets.tf).
+# Valkey and Mailpit's SMTP. Wave 12 alongside mailpit. The valkey-auth
+# Secret comes from Key Vault (cluster/lab/secrets/dev.yaml).
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:

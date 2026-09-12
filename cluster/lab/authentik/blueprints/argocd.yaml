@@ -1,8 +1,9 @@
 # ArgoCD logs in with OIDC directly (no Dex). The issuer ArgoCD uses is
 # https://auth.lab.ryfoje.com/application/o/argocd/ -- the application slug
 # below is part of that URL, so do not rename it without changing
-# bootstrap.tf. Client secret: Terraform (secrets.tf) -> env var on the
-# worker, same mechanism as grafana.yaml.
+# bootstrap.tf. Client secret: Key Vault -> authentik-blueprint-env Secret
+# (cluster/lab/secrets) -> env var on the worker, same mechanism as
+# grafana.yaml.
 #
 # ArgoCD's RBAC (bootstrap.tf) maps the argocd-admins group to role:admin
 # and everyone else to read-only. The local "admin" login stays as

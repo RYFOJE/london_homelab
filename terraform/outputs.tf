@@ -25,9 +25,5 @@ output "talosconfig" {
   sensitive = true
 }
 
-# Grafana break-glass login (user: admin). Authentik SSO comes later; this
-# never goes away.
-output "grafana_admin_password" {
-  value     = random_password.grafana_admin.result
-  sensitive = true
-}
+# No credential outputs: Terraform generates none. Every password is in Key
+# Vault and in the cluster -- ./scripts/credentials.ps1 prints them.

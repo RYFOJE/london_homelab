@@ -51,10 +51,23 @@ variable "git_repo_url" {
   description = "HTTPS URL of this repo. ArgoCD reads cluster/lab/apps from it. Keep it public, or you need a repo credential in the bootstrap path."
 }
 
-variable "cloudflare_api_token" {
+# Azure Key Vault holds every lab credential (scripts/keyvault.ps1 fills it).
+# Terraform only reads two entries from it -- the External Secrets service
+# principal -- using your `az login` session. None of these three is secret.
+
+variable "azure_subscription_id" {
   type        = string
-  sensitive   = true
-  description = "Cloudflare API token for cert-manager's DNS-01 solver. Permissions: Zone/DNS/Edit + Zone/Zone/Read, scoped to the zone the lab domain sits under. Lands in Secret cert-manager/cloudflare-api-token."
+  description = "Subscription the Key Vault lives in: `az account show --query id -o tsv`. Required by the azurerm provider for plan/apply."
+}
+
+variable "azure_key_vault_name" {
+  type        = string
+  description = "Key Vault name (globally unique, the <name> in https://<name>.vault.azure.net). Must match spec.provider.azurekv.vaultUrl in cluster/lab/secrets/clustersecretstore.yaml."
+}
+
+variable "azure_key_vault_resource_group" {
+  type        = string
+  description = "Resource group that contains the Key Vault."
 }
 
 variable "proxmox_agent_wait" {

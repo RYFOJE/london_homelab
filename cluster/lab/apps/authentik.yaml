@@ -29,8 +29,8 @@ spec:
 
         # Credentials arrive as env vars from Secrets -- never as values.
         # AUTHENTIK_POSTGRESQL__PASSWORD comes from the Secret CNPG generates.
-        # AUTHENTIK_SECRET_KEY comes from the Secret Terraform writes in
-        # secrets.tf (random_password kept in tfstate, so it survives rebuilds).
+        # AUTHENTIK_SECRET_KEY and the two OIDC client secrets come from Key
+        # Vault via cluster/lab/secrets/authentik.yaml (wave -6).
         global:
           env:
             - name: AUTHENTIK_POSTGRESQL__PASSWORD
@@ -43,7 +43,7 @@ spec:
                 secretKeyRef:
                   name: authentik-secret-key
                   key: secret-key
-            # Read by blueprints/grafana.yaml via !Env. Same Terraform value
+            # Read by blueprints/grafana.yaml via !Env. Same vault value
             # Grafana sees in its grafana-oidc Secret.
             - name: GRAFANA_OIDC_CLIENT_SECRET
               valueFrom:

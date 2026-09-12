@@ -1,5 +1,6 @@
-# Terraform's last act. After this it owns the VM, the LXC and an ArgoCD
-# install -- nothing else. Everything downstream lives in git.
+# Terraform's last act. After this it owns the VM, the LXC, an ArgoCD install
+# and one seed Secret (secrets.tf) -- nothing else. Everything downstream
+# lives in git.
 #
 # Deliberately NOT using kubernetes_manifest for the root Application:
 # it runs a server-side dry-run at plan time and fails when the Application
@@ -42,7 +43,7 @@ resource "helm_release" "argocd" {
       cm = {
         url = "https://argocd.${local.domain}"
         # Provider/application: cluster/lab/authentik/blueprints/argocd.yaml.
-        # Secret argocd-oidc is written by secrets.tf.
+        # Secret argocd-oidc is pulled from Key Vault by cluster/lab/secrets.
         "oidc.config" = <<-YAML
           name: Authentik
           issuer: https://auth.${local.domain}/application/o/argocd/
@@ -77,7 +78,8 @@ resource "helm_release" "argocd" {
         hostname         = "argocd.${local.domain}"
         path             = "/"
         pathType         = "Prefix"
-        # tls stays false until a ClusterIssuer exists. HTTP only for now.
+        # No tls: block needed -- Traefik's default store (cluster/lab/apps/
+        # traefik.yaml) serves the lab wildcard on :443 and redirects :80.
         tls = false
       }
     }
@@ -85,20 +87,12 @@ resource "helm_release" "argocd" {
 }
 
 resource "helm_release" "root_app" {
-  # The namespaces below are ALSO created by ArgoCD (CreateNamespace=true on
-  # the apps that land in them). Whoever gets there second fails: Terraform
-  # with "namespaces X already exists", which then needs a `terraform import`.
-  # Ordering the root app after them means Terraform always wins on a fresh
-  # build. On an existing cluster where ArgoCD already created one, import it:
-  #   terraform import kubernetes_namespace_v1.<name> <name>
+  # The seed Secret must exist before the root app starts working through
+  # the waves: the secrets app (wave -6) reads it, and a missing Secret there
+  # is a Degraded ClusterSecretStore that blocks every later wave.
   depends_on = [
     helm_release.argocd,
-    kubernetes_namespace_v1.authentik,
-    kubernetes_namespace_v1.observability,
-    kubernetes_namespace_v1.elastic,
-    kubernetes_namespace_v1.database,
-    kubernetes_namespace_v1.cert_manager,
-    kubernetes_namespace_v1.dev,
+    kubernetes_secret_v1.azure_keyvault_creds,
   ]
 
   name       = "root"
