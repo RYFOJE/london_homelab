@@ -341,6 +341,12 @@ When `authentik` is Healthy, log in at `https://auth.lab.ryfoje.com` as
 `lab-forward-auth`. These come from the blueprints in
 `cluster/lab/authentik/blueprints/`; if missing:
 `kubectl -n authentik logs deploy/authentik-worker | Select-String blueprint`.
+If an OAuth2 login later fails with `invalid_request: The request is
+otherwise malformed` (ArgoCD) or `Login provider denied login request`
+(Grafana), the provider's **Grant types** list is empty -- blueprints must
+set `grant_types` explicitly (the UI defaults it, blueprints do not). Check
+with `kubectl -n authentik logs deploy/authentik-server | Select-String
+"Invalid grant_type"`.
 
 Then:
 

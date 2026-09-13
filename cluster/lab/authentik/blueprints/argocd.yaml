@@ -31,6 +31,12 @@ entries:
       client_type: confidential
       client_id: argocd
       client_secret: !Env ARGOCD_OIDC_CLIENT_SECRET
+      # Authentik >= 2025.x gates every grant per provider. The UI defaults
+      # this list; blueprints do NOT (empty list = every login fails with
+      # "invalid_request: The request is otherwise malformed"). Set it.
+      grant_types:
+        - authorization_code
+        - refresh_token
       redirect_uris:
         - matching_mode: strict
           url: https://argocd.lab.ryfoje.com/auth/callback
