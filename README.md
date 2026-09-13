@@ -235,7 +235,8 @@ this. Apps that cannot (RabbitMQ) show their own login after Authentik's.
 
 Grafana roles: Authentik groups `grafana-admins` (akadmin is in it) and
 `grafana-editors`. The blueprints bind those groups to the application, so
-nobody else can log in at all; same for `argocd-admins` and ArgoCD. Add
+nobody else can log in at all; same for `argocd-admins` and ArgoCD, and
+`lab-admins` for every forward-auth app (pgAdmin, Kibana, RabbitMQ, Mailpit). Add
 users to the group's `users:` list in the blueprint (or in the admin UI
 until the file next changes).
 

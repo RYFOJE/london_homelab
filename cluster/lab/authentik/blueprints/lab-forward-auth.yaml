@@ -6,14 +6,26 @@
 # lands on auth.lab.ryfoje.com, which the authentik server already serves.
 # Protecting a new app is a single Ingress annotation (see middleware.yaml).
 #
-# Trade-off: one authorization policy for all of them. Anyone who can log in
-# to Authentik can reach every forward-auth app. Fine for a personal lab.
+# Trade-off: one authorization policy for all of them. Members of
+# lab-admins (bound below) reach every forward-auth app; nobody else
+# reaches any. Fine for a personal lab.
 version: 1
 metadata:
   name: lab-forward-auth
   labels:
     blueprints.goauthentik.io/description: Traefik forward auth for *.lab.ryfoje.com
 entries:
+  # Membership is the access list for every forward-auth app. Add users
+  # here (durable) or in the admin UI (Directory -> Groups); a UI change
+  # is reset when this file changes.
+  - model: authentik_core.group
+    id: lab-admins
+    identifiers:
+      name: lab-admins
+    attrs:
+      users:
+        - !Find [authentik_core.user, [username, akadmin]]
+
   - model: authentik_providers_proxy.proxyprovider
     id: lab-forward-auth-provider
     identifiers:
@@ -28,12 +40,24 @@ entries:
       access_token_validity: hours=24
 
   - model: authentik_core.application
+    id: lab-forward-auth-app
     identifiers:
       slug: lab-forward-auth
     attrs:
       name: Lab services
       provider: !KeyOf lab-forward-auth-provider
       meta_description: Forward-auth gate for pgAdmin, Kibana and RabbitMQ
+
+  # Access control: the outpost evaluates this application's bindings on
+  # every request, so non-members get Authentik's "access denied" page
+  # instead of the app.
+  - model: authentik_policies.policybinding
+    identifiers:
+      order: 0
+      target: !KeyOf lab-forward-auth-app
+      group: !KeyOf lab-admins
+    attrs:
+      enabled: true
 
   # Bind the provider to the outpost that ships inside authentik-server. The
   # `managed` identifier is how authentik names the embedded outpost, so this
