@@ -14,7 +14,11 @@ metadata:
   labels:
     blueprints.goauthentik.io/description: ArgoCD OAuth2 provider, application and admin group
 entries:
+  # Membership is the access list: only this group passes the policy
+  # binding at the bottom. Add users here (durable) or in the admin UI
+  # (Directory -> Groups); a UI change is reset when this file changes.
   - model: authentik_core.group
+    id: argocd-admins
     identifiers:
       name: argocd-admins
     attrs:
@@ -52,6 +56,7 @@ entries:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
 
   - model: authentik_core.application
+    id: argocd-app
     identifiers:
       slug: argocd
     attrs:
@@ -59,3 +64,14 @@ entries:
       provider: !KeyOf argocd-provider
       meta_launch_url: https://argocd.lab.ryfoje.com
       meta_description: GitOps
+
+  # Access control. Without a binding every Authentik user can authorize
+  # (and land in ArgoCD as read-only). With one, non-members get
+  # Authentik's "access denied" page and never reach ArgoCD.
+  - model: authentik_policies.policybinding
+    identifiers:
+      order: 0
+      target: !KeyOf argocd-app
+      group: !KeyOf argocd-admins
+    attrs:
+      enabled: true

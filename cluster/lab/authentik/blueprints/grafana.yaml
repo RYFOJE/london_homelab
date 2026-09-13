@@ -16,7 +16,11 @@ metadata:
   labels:
     blueprints.goauthentik.io/description: Grafana OAuth2 provider, application and role groups
 entries:
+  # Membership is the access list: only these two groups pass the policy
+  # bindings at the bottom. Add users here (durable) or in the admin UI
+  # (Directory -> Groups); a UI change is reset when this file changes.
   - model: authentik_core.group
+    id: grafana-admins
     identifiers:
       name: grafana-admins
     attrs:
@@ -24,6 +28,7 @@ entries:
         - !Find [authentik_core.user, [username, akadmin]]
 
   - model: authentik_core.group
+    id: grafana-editors
     identifiers:
       name: grafana-editors
     attrs: {}
@@ -56,6 +61,7 @@ entries:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
 
   - model: authentik_core.application
+    id: grafana-app
     identifiers:
       slug: grafana
     attrs:
@@ -63,3 +69,22 @@ entries:
       provider: !KeyOf grafana-provider
       meta_launch_url: https://grafana.lab.ryfoje.com
       meta_description: Metrics, logs and traces
+
+  # Access control. Bindings on an application are OR'd (policy engine
+  # mode "any"): admins or editors pass, everyone else gets Authentik's
+  # "access denied" page and never reaches Grafana.
+  - model: authentik_policies.policybinding
+    identifiers:
+      order: 0
+      target: !KeyOf grafana-app
+      group: !KeyOf grafana-admins
+    attrs:
+      enabled: true
+
+  - model: authentik_policies.policybinding
+    identifiers:
+      order: 10
+      target: !KeyOf grafana-app
+      group: !KeyOf grafana-editors
+    attrs:
+      enabled: true
