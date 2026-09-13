@@ -246,6 +246,15 @@ spec:
               disable_login_form: false
               oauth_auto_login: false
               signout_redirect_url: https://auth.lab.ryfoje.com/application/o/grafana/end-session/
+            plugins:
+              # Grafana 13 ships loki/prometheus/tempo as bundled plugins
+              # under a read-only dir and, by default, tries to upgrade
+              # them from grafana.com at startup. The upgrade fails on the
+              # read-only dir AND unregisters the bundled copy -- Grafana
+              # then reports "Could not find plugin definition for data
+              # source" for Loki and every logs panel is empty. Pin what
+              # ships in the image.
+              preinstall_auto_update: false
             feature_toggles:
               enable: traceqlEditor traceToProfiles
             unified_alerting:

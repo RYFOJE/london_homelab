@@ -399,6 +399,7 @@ function Get-K8sSecret($ns, $name, $key) {
 | `https://mailpit.lab.ryfoje.com` | Authentik page once (group `lab-admins`; others get access denied), then the inbox. Send a test: `Send-MailMessage -SmtpServer 192.168.18.80 -Port 1025 -From a@b -To c@d -Subject hi -Body hi` |
 | `redis-cli -h 192.168.18.80 -a <pw> ping` | `PONG`; password from `./scripts/credentials.ps1 -Only valkey` |
 | `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Only `grafana-admins` / `grafana-editors` may log in; others get Authentik's access-denied page. Break-glass: user `admin`, `./scripts/credentials.ps1 -Only grafana` |
+| Grafana → Explore → Loki, `{namespace="authentik"}` | Log lines. "No Loki datasource configured" or `Could not find plugin definition for data source` in Grafana's log means plugin auto-update unregistered the bundled Loki plugin; `plugins.preinstall_auto_update=false` in `kube-prometheus-stack.yaml` must be set |
 | `https://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
 | `https://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
 | `https://rabbitmq.lab.ryfoje.com` | Authentik page, then RabbitMQ's own login: `Get-K8sSecret messaging rabbitmq-default-user username` / `password` |

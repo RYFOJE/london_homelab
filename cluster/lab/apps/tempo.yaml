@@ -22,6 +22,12 @@ spec:
           retention: 72h
           reportingEnabled: false
 
+          # Grafana's Tempo datasource has streamingEnabled.search on
+          # (kube-prometheus-stack.yaml) and streams over gRPC on the HTTP
+          # port. Off, every TraceQL search fails with "http2: frame too
+          # large ... looked like an HTTP/1.1 header".
+          streamOverHttpEnabled: true
+
           storage:
             trace:
               backend: local
