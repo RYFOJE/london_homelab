@@ -395,10 +395,10 @@ function Get-K8sSecret($ns, $name, $key) {
 
 | Check | Expect |
 |---|---|
-| `https://argocd.lab.ryfoje.com` → Log in via Authentik | You land as admin (group `argocd-admins`). Break-glass: user `admin`, `./scripts/credentials.ps1 -Only argocd` |
+| `https://argocd.lab.ryfoje.com` → Log in via Authentik | You land as admin (group `argocd-admins`). Users outside that group get Authentik's access-denied page. Break-glass: user `admin`, `./scripts/credentials.ps1 -Only argocd` |
 | `https://mailpit.lab.ryfoje.com` | Authentik page once, then the inbox. Send a test: `Send-MailMessage -SmtpServer 192.168.18.80 -Port 1025 -From a@b -To c@d -Subject hi -Body hi` |
 | `redis-cli -h 192.168.18.80 -a <pw> ping` | `PONG`; password from `./scripts/credentials.ps1 -Only valkey` |
-| `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Break-glass: user `admin`, `./scripts/credentials.ps1 -Only grafana` |
+| `https://grafana.lab.ryfoje.com` → Sign in with Authentik | You land as Admin (group `grafana-admins`). Only `grafana-admins` / `grafana-editors` may log in; others get Authentik's access-denied page. Break-glass: user `admin`, `./scripts/credentials.ps1 -Only grafana` |
 | `https://pgadmin.lab.ryfoje.com` | Authentik page once, then pgAdmin logged in. Expand `dev-db`, paste `Get-K8sSecret database dev-db-app password`, tick Save |
 | `https://kibana.lab.ryfoje.com` | Authentik page once, then Kibana with no login form |
 | `https://rabbitmq.lab.ryfoje.com` | Authentik page, then RabbitMQ's own login: `Get-K8sSecret messaging rabbitmq-default-user username` / `password` |
@@ -410,6 +410,16 @@ function Get-K8sSecret($ns, $name, $key) {
 
 In-cluster names for your own workloads are in the README "Dev platform"
 table.
+
+**Giving someone access.** Create the user in Authentik (Directory → Users),
+then add them to `argocd-admins`, `grafana-admins` or `grafana-editors`.
+Those groups are the whole access list: the blueprints bind each group to
+its application, so a user in none of them is denied at Authentik. For a
+permanent grant add the user to the group's `users:` list in
+`cluster/lab/authentik/blueprints/` -- the blueprint rewrites membership
+whenever the file changes, so a UI-only add is lost on the next edit.
+Forward-auth apps (pgAdmin, Kibana, RabbitMQ, Mailpit) have no such
+binding: any Authentik user reaches them.
 
 ---
 

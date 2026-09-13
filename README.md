@@ -144,8 +144,8 @@ The Talos VM is sized at 12 GiB for this; `locals.tf` is where that lives.
 | Valkey (Redis-compatible) | `valkey.dev.svc.cluster.local:6379` | `192.168.18.80:6379` | Secret `dev/valkey-auth` |
 | Mailpit SMTP (sink) | `mailpit-smtp.dev.svc.cluster.local:1025` | `192.168.18.80:1025` | none |
 | Mailpit UI | — | `https://mailpit.lab.ryfoje.com` | Authentik login only |
-| Grafana | — | `https://grafana.lab.ryfoje.com` | "Sign in with Authentik", or the break-glass admin |
-| ArgoCD | — | `https://argocd.lab.ryfoje.com` | "Log in via Authentik" (group `argocd-admins` = admin, else read-only), or the local admin |
+| Grafana | — | `https://grafana.lab.ryfoje.com` | "Sign in with Authentik" (groups `grafana-admins` / `grafana-editors` only), or the break-glass admin |
+| ArgoCD | — | `https://argocd.lab.ryfoje.com` | "Log in via Authentik" (group `argocd-admins` only), or the local admin |
 
 Reading a password:
 
@@ -234,7 +234,10 @@ auto-login a service account (Kibana's anonymous provider) get real SSO from
 this. Apps that cannot (RabbitMQ) show their own login after Authentik's.
 
 Grafana roles: Authentik groups `grafana-admins` (akadmin is in it) and
-`grafana-editors`; everyone else is a Viewer.
+`grafana-editors`. The blueprints bind those groups to the application, so
+nobody else can log in at all; same for `argocd-admins` and ArgoCD. Add
+users to the group's `users:` list in the blueprint (or in the admin UI
+until the file next changes).
 
 ## Hard-coded in more than one place
 
