@@ -162,7 +162,7 @@ else {
     # Name the culprit if we can: whoever answers is not the lab resolver.
     $v6 = (Get-DnsClientServerAddress -AddressFamily IPv6 -ErrorAction SilentlyContinue |
         Where-Object { $_.ServerAddresses }).ServerAddresses | Select-Object -First 1
-    $why = if ($v6) { "an IPv6 DNS server ($v6) is answering first -- disable IPv6 on the adapter, or stop the router advertising DNS over IPv6" }
+    $why = if ($v6) { "an IPv6 DNS server ($v6) is answering first -- fix with an NRPT rule (elevated): Add-DnsClientNrptRule -Namespace `".$domain`" -NameServers $dnsIp" }
     else { "not your effective resolver -- router DHCP option 6 (DEPLOY.md step 5)" }
     Report 'this machine uses the lab resolver' 'WARN' `
         ("$sysName resolved to '$sysAnswer', expected ${nodeIp}: " + $why)

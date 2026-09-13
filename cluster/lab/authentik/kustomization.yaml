@@ -15,6 +15,7 @@ configMapGenerator:
       - blueprints/lab-forward-auth.yaml
       - blueprints/grafana.yaml
       - blueprints/argocd.yaml
+      - blueprints/akadmin.yaml
 
 generatorOptions:
   # The chart references the ConfigMap by its plain name.

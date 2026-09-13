@@ -94,6 +94,7 @@ $Catalog = @(
     @{ Name = 'cloudflare-api-token';       Prompt = 'Cloudflare API token (Zone/DNS/Edit + Zone/Zone/Read on the lab zone)';
        Cluster = 'cert-manager/cloudflare-api-token/api-token' }
     @{ Name = 'authentik-secret-key';       Length = 64; Cluster = 'authentik/authentik-secret-key/secret-key' }
+    @{ Name = 'akadmin-password';           Length = 32; Cluster = 'authentik/authentik-blueprint-env/akadmin-password' }
     @{ Name = 'grafana-admin-password';     Length = 32; Cluster = 'observability/grafana-admin/admin-password' }
     @{ Name = 'grafana-oidc-client-secret'; Length = 64; Cluster = 'observability/grafana-oidc/GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET' }
     @{ Name = 'argocd-oidc-client-secret';  Length = 64; Cluster = 'argocd/argocd-oidc/oidc.clientSecret' }

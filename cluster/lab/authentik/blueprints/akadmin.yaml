@@ -1,0 +1,19 @@
+# Sets the built-in akadmin user's password so /if/flow/initial-setup/ is
+# never needed. Authentik creates akadmin with no usable password on first
+# boot and gates that flow on exactly that; giving it a password here (from
+# Key Vault via !Env, see authentik.yaml global.env) short-circuits it.
+version: 1
+metadata:
+  name: akadmin-bootstrap
+  labels:
+    blueprints.goauthentik.io/description: Set akadmin's password so initial-setup is skipped
+entries:
+  - model: authentik_core.user
+    identifiers:
+      username: akadmin
+    attrs:
+      name: akadmin
+      # Same address as pgadmin.yaml's bootstrap admin -- DEPLOY.md step 6
+      # says they must match.
+      email: ryfoje2@gmail.com
+      password: !Env AKADMIN_PASSWORD

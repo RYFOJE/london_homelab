@@ -29,8 +29,9 @@ spec:
 
         # Credentials arrive as env vars from Secrets -- never as values.
         # AUTHENTIK_POSTGRESQL__PASSWORD comes from the Secret CNPG generates.
-        # AUTHENTIK_SECRET_KEY and the two OIDC client secrets come from Key
-        # Vault via cluster/lab/secrets/authentik.yaml (wave -6).
+        # AUTHENTIK_SECRET_KEY, the two OIDC client secrets and akadmin's
+        # password come from Key Vault via cluster/lab/secrets/authentik.yaml
+        # (wave -6).
         global:
           env:
             - name: AUTHENTIK_POSTGRESQL__PASSWORD
@@ -55,6 +56,13 @@ spec:
                 secretKeyRef:
                   name: authentik-blueprint-env
                   key: argocd-oidc-client-secret
+            # Read by blueprints/akadmin.yaml via !Env, so first login never
+            # needs the /if/flow/initial-setup/ web flow.
+            - name: AKADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: authentik-blueprint-env
+                  key: akadmin-password
 
         # Configuration as code. The ConfigMap comes from cluster/lab/authentik
         # (authentik-config app, wave 6); the worker applies every *.yaml key.

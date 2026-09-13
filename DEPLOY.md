@@ -157,9 +157,9 @@ ssh-add -l
 
 Three edits in the repo before the first push:
 
-1. `cluster/lab/apps/pgadmin.yaml` → `env.email`: the email you will give your
-   Authentik admin in step 6. They must match, or pgAdmin creates a second
-   non-admin user for you.
+1. `cluster/lab/apps/pgadmin.yaml` → `env.email` and
+   `cluster/lab/authentik/blueprints/akadmin.yaml` → `email`: same address in
+   both, or pgAdmin creates a second non-admin user for you.
 2. `cluster/lab/secrets/clustersecretstore.yaml` → `tenantId` and `vaultUrl`
    must be what `keyvault.ps1` printed (`vaultUrl` is the **ESO vault**, not
    the Terraform one).
@@ -275,8 +275,26 @@ answers correctly. `nslookup <name>` naming an `fe80::` server is the tell:
 nslookup argocd.lab.ryfoje.com     # "Server: UnKnown / Address: fe80::..." = the router, over IPv6
 ```
 
-Fix it by turning off DNS advertisement over IPv6 on the router, or disabling
-IPv6 on that adapter (elevated, and it affects all traffic on it):
+The fix that costs nothing else: an NRPT (Name Resolution Policy Table) rule
+sending just this namespace to the lab resolver. NRPT is consulted before
+adapter DNS, so it beats the IPv6 server without turning IPv6 off, and the
+leading dot makes it match every subdomain. Elevated, once, persists across
+reboots:
+
+```powershell
+Add-DnsClientNrptRule -Namespace ".lab.ryfoje.com" -NameServers "192.168.18.70"
+```
+
+Check it, and undo it, with:
+
+```powershell
+Get-DnsClientNrptRule
+Get-DnsClientNrptRule | Where-Object Namespace -eq ".lab.ryfoje.com" | Remove-DnsClientNrptRule -Force
+```
+
+The blunter alternatives: turn off DNS advertisement over IPv6 on the router
+(RDNSS), or disable IPv6 on the adapter entirely -- elevated, and it affects
+all traffic on that adapter, not just DNS:
 
 ```powershell
 Disable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6
@@ -314,16 +332,15 @@ kubectl -n authentik describe externalsecret authentik-secret-key
 error against `login.microsoftonline.com` is a wrong `tenantId` in
 `clustersecretstore.yaml`.
 
-When `authentik` is Healthy:
-
-1. Open `https://auth.lab.ryfoje.com/if/flow/initial-setup/`.
-2. Set the `akadmin` password. Use the **same email** you put in
-   `pgadmin.yaml`.
-3. Admin interface → Applications → confirm **Lab services** (proxy provider,
-   forward domain), **Grafana** and **ArgoCD** (OAuth2) exist. Admin interface → Outposts
-   → the embedded outpost lists `lab-forward-auth`. These come from the
-   blueprints in `cluster/lab/authentik/blueprints/`; if missing:
-   `kubectl -n authentik logs deploy/authentik-worker | Select-String blueprint`.
+When `authentik` is Healthy, log in at `https://auth.lab.ryfoje.com` as
+`akadmin` (`./scripts/credentials.ps1 -Only akadmin`) -- no
+`/if/flow/initial-setup/` step, the password comes from Key Vault via
+`blueprints/akadmin.yaml`. Then Admin interface → Applications → confirm
+**Lab services** (proxy provider, forward domain), **Grafana** and **ArgoCD**
+(OAuth2) exist. Admin interface → Outposts → the embedded outpost lists
+`lab-forward-auth`. These come from the blueprints in
+`cluster/lab/authentik/blueprints/`; if missing:
+`kubectl -n authentik logs deploy/authentik-worker | Select-String blueprint`.
 
 Then:
 
@@ -427,6 +444,7 @@ service principal, which has no access to the Terraform vault at all.
 | Terraform | `pve-api-token` | none -- never enters the cluster | Terraform's proxmox provider, `preflight.ps1`, `verify.ps1` (all through `az login`) | **prompted**: `root@pam!tf=<secret>` from step 1.1 |
 | ESO | `cloudflare-api-token` | `cert-manager/cloudflare-api-token` → `api-token` | both ClusterIssuers (`cluster/lab/tls`) | **prompted**: Cloudflare token from step 1b |
 | ESO | `authentik-secret-key` | `authentik/authentik-secret-key` → `secret-key` | Authentik (`AUTHENTIK_SECRET_KEY`); signs sessions and user IDs -- never rotate casually | generated, 64 |
+| ESO | `akadmin-password` | `authentik/authentik-blueprint-env` → `akadmin-password` | Authentik blueprint (`akadmin.yaml`, `!Env`); sets the `akadmin` login | generated, 32 |
 | ESO | `grafana-admin-password` | `observability/grafana-admin` → `admin-user`=`admin`, `admin-password` | Grafana break-glass login | generated, 32 |
 | ESO | `grafana-oidc-client-secret` | `observability/grafana-oidc` → `GF_AUTH_GENERIC_OAUTH_CLIENT_ID`=`grafana`, `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET`; and `authentik/authentik-blueprint-env` → `grafana-oidc-client-secret` | Grafana (envFromSecret) and the Authentik blueprint (`!Env`) -- one value, both sides | generated, 64 |
 | ESO | `argocd-oidc-client-secret` | `argocd/argocd-oidc` → `oidc.clientSecret` (labelled `part-of=argocd`); and `authentik/authentik-blueprint-env` → `argocd-oidc-client-secret` | ArgoCD `oidc.config` and the Authentik blueprint | generated, 64 |
@@ -464,8 +482,9 @@ cd ..
 ./scripts/verify.ps1
 ```
 
-Then step 6 (Authentik initial setup again: its database was on the VM).
-Router DNS does not change; the LXC gets the same IP.
+Then step 6 (ArgoCD sync again: Authentik's database was on the VM, but
+`akadmin`'s password comes back from Key Vault with it). Router DNS does not
+change; the LXC gets the same IP.
 
 ## Migrating an existing cluster to Key Vault
 
@@ -478,8 +497,10 @@ of the order below is that no password changes and nothing restarts.
    ./scripts/keyvault.ps1 -FromCluster
    ```
 
-   (`-FromCluster` reads the nine existing Secrets through kubectl into the
-   ESO vault; the Cloudflare token comes from the cluster too, so no prompt.
+   (`-FromCluster` reads the existing Secrets through kubectl into the ESO
+   vault; the Cloudflare token comes from the cluster too, so no prompt.
+   `akadmin-password` has nothing to copy on a cluster built before this
+   entry existed, so it generates a new one -- `akadmin`'s password changes.
    The Proxmox token was never in the cluster and goes in the Terraform
    vault instead: it prompts for that one, paste the `pve_api_token` value
    from your old tfvars.)

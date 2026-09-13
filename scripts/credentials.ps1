@@ -9,12 +9,9 @@
     RabbitMQ, Elasticsearch, ArgoCD admin) change on every rebuild; the rest
     are copies of Azure Key Vault entries and survive it.
 
-    Not listed: the Authentik admin (akadmin) -- you set that in the
-    initial-setup flow and it lives only in Authentik's database.
-
 .PARAMETER Only
     Show one service: argocd, grafana, postgres, rabbitmq, elasticsearch,
-    pgadmin, kibana.
+    pgadmin, kibana, akadmin.
 
 .EXAMPLE
     ./scripts/credentials.ps1
@@ -22,7 +19,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('argocd', 'grafana', 'postgres', 'rabbitmq', 'elasticsearch', 'pgadmin', 'kibana', 'valkey')]
+    [ValidateSet('argocd', 'grafana', 'postgres', 'rabbitmq', 'elasticsearch', 'pgadmin', 'kibana', 'valkey', 'akadmin')]
     [string]$Only
 )
 
@@ -37,6 +34,7 @@ function Get-SecretValue {
 
 # service, namespace, secret, user (key or literal prefixed with '='), password key
 $catalog = @(
+    @{ Service = 'akadmin';       Url = 'https://auth.lab.ryfoje.com';     Ns = 'authentik';     Secret = 'authentik-blueprint-env';       User = '=akadmin'; Pass = 'akadmin-password' }
     @{ Service = 'argocd';        Url = 'https://argocd.lab.ryfoje.com';   Ns = 'argocd';        Secret = 'argocd-initial-admin-secret';   User = '=admin';   Pass = 'password' }
     @{ Service = 'grafana';       Url = 'https://grafana.lab.ryfoje.com';  Ns = 'observability'; Secret = 'grafana-admin';                 User = 'admin-user'; Pass = 'admin-password' }
     @{ Service = 'postgres';      Url = '192.168.18.80:5432 / db dev';     Ns = 'database';      Secret = 'dev-db-app';                    User = 'username'; Pass = 'password' }
