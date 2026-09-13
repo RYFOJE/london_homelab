@@ -265,6 +265,26 @@ If you cannot change the router, set that DNS server on your adapter by hand.
 Without this step, nothing under `*.lab.ryfoje.com` resolves from your
 machine. The lab resolver forwards everything else to 1.1.1.1 / 8.8.8.8.
 
+**IPv6 silently beats all of this.** If your router advertises itself as a DNS
+server over IPv6 (router advertisement / RDNSS), Windows prefers it and never
+asks the IPv4 resolver, so `*.lab.ryfoje.com` fails even though the adapter
+lists `192.168.18.70` and `Resolve-DnsName -Server 192.168.18.70 <name>`
+answers correctly. `nslookup <name>` naming an `fe80::` server is the tell:
+
+```powershell
+nslookup argocd.lab.ryfoje.com     # "Server: UnKnown / Address: fe80::..." = the router, over IPv6
+```
+
+Fix it by turning off DNS advertisement over IPv6 on the router, or disabling
+IPv6 on that adapter (elevated, and it affects all traffic on it):
+
+```powershell
+Disable-NetAdapterBinding -Name "Wi-Fi" -ComponentID ms_tcpip6
+```
+
+`verify.ps1` checks this by resolving without `-Server` and comparing the
+answer, so it catches the case where the resolver is configured but unused.
+
 ---
 
 ## 6. Let ArgoCD finish, then Authentik first login

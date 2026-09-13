@@ -142,11 +142,30 @@ foreach ($n in @("argocd.$domain", "anything.$domain")) {
     }
     catch { Report "resolve $n" 'FAIL' "no answer from $dnsIp" }
 }
-# is the resolver actually in use by THIS machine?
-if (Get-Command Get-DnsClientServerAddress -ErrorAction SilentlyContinue) {
-    $inUse = (Get-DnsClientServerAddress -AddressFamily IPv4).ServerAddresses -contains $dnsIp
-    Report 'this machine uses the lab resolver' ($inUse ? 'PASS' : 'WARN') `
-        ($inUse ? '' : "not in your DNS list -- names resolve only with -Server $dnsIp")
+# Is the resolver actually in use by THIS machine? Resolve WITHOUT -Server and
+# compare: having $dnsIp in the IPv4 DNS list proves nothing. Windows prefers a
+# DNS server advertised over IPv6 (router RA) regardless of the IPv4 list, so
+# the browser gets the router's public answer -- no lab records -- while the
+# lab resolver sits there configured and unused.
+$sysName = "argocd.$domain"
+$sysAnswer = $null
+try {
+    $sysAnswer = (Resolve-DnsName $sysName -Type A -ErrorAction Stop |
+        Where-Object { $_.IPAddress } | Select-Object -First 1).IPAddress
+}
+catch { $sysAnswer = $null }
+
+if ($sysAnswer -eq $nodeIp) {
+    Report 'this machine uses the lab resolver' 'PASS' "$sysName -> $sysAnswer without -Server"
+}
+else {
+    # Name the culprit if we can: whoever answers is not the lab resolver.
+    $v6 = (Get-DnsClientServerAddress -AddressFamily IPv6 -ErrorAction SilentlyContinue |
+        Where-Object { $_.ServerAddresses }).ServerAddresses | Select-Object -First 1
+    $why = if ($v6) { "an IPv6 DNS server ($v6) is answering first -- disable IPv6 on the adapter, or stop the router advertising DNS over IPv6" }
+    else { "not your effective resolver -- router DHCP option 6 (DEPLOY.md step 5)" }
+    Report 'this machine uses the lab resolver' 'WARN' `
+        ("$sysName resolved to '$sysAnswer', expected ${nodeIp}: " + $why)
 }
 
 # =============================================================== 3. node

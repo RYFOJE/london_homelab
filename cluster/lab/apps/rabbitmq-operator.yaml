@@ -23,8 +23,31 @@ spec:
     targetRevision: v2.23.0
     path: config/installation
     kustomize:
+      # The selector must be the image name the overlay actually renders.
+      # Upstream used to ship rabbitmqoperator/cluster-operator-dev; by v2.23.0
+      # config/installation declares ghcr.io/rabbitmq/cluster-operator:latest
+      # outright, so the old selector silently matched nothing and the operator
+      # ran :latest -- an unpinned image that changes under you on any restart.
+      # Verify after bumping: the rendered image must carry the tag, not latest.
+      #   kubectl kustomize <this source> | Select-String 'image:'
       images:
-        - rabbitmqoperator/cluster-operator-dev=ghcr.io/rabbitmq/cluster-operator:2.23.0
+        - ghcr.io/rabbitmq/cluster-operator=ghcr.io/rabbitmq/cluster-operator:2.23.0
+      # Drop the Namespace the upstream overlay ships. cluster/lab/namespaces
+      # already declares rabbitmq-system (wave -20) and owns it -- ArgoCD's
+      # tracking-id on the live object says so. Rendering it here too gives one
+      # object two owners, and this app then sits at OutOfSync forever while
+      # staying Healthy, which also holds the root app OutOfSync. The namespace
+      # keeps the labels the chart gave it; nothing re-applies them.
+      patches:
+        - target:
+            kind: Namespace
+            name: rabbitmq-system
+          patch: |
+            $patch: delete
+            apiVersion: v1
+            kind: Namespace
+            metadata:
+              name: rabbitmq-system
   destination:
     server: https://kubernetes.default.svc
     namespace: rabbitmq-system
